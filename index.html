@@ -3,17 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <title>PRISM Live Map</title>
 
+  <!-- Leaflet -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  >
+  />
 
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
-    html, body {
+    html,
+    body {
       width: 100%;
       height: 100%;
       margin: 0;
@@ -24,28 +29,27 @@
     }
 
     #map {
-      position: absolute;
-      inset: 0;
       width: 100%;
       height: 100%;
       border-radius: 22px;
       overflow: hidden;
     }
 
+    /* Pasek LIVE */
     .live-box {
       position: absolute;
       z-index: 1000;
       top: 12px;
       left: 12px;
       padding: 7px 11px;
-      background: rgba(20,20,20,.72);
-      color: #fff;
+      background: rgba(20, 20, 20, 0.72);
+      color: white;
       border-radius: 12px;
       font-size: 13px;
-      font-weight: 700;
+      font-weight: bold;
       backdrop-filter: blur(5px);
       -webkit-backdrop-filter: blur(5px);
-      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
     }
 
     .live-dot {
@@ -55,50 +59,32 @@
       margin-right: 5px;
       background: #ff3030;
       border-radius: 50%;
-      box-shadow: 0 0 6px rgba(255,48,48,.8);
+      box-shadow: 0 0 6px rgba(255,48,48,0.8);
     }
 
-    .gps-button {
-      position: absolute;
-      z-index: 1000;
-      right: 12px;
-      top: 12px;
-      border: 0;
-      border-radius: 12px;
-      padding: 8px 12px;
-      background: rgba(20,20,20,.78);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0,0,0,.25);
-    }
-
-    .gps-button:hover {
-      background: rgba(20,20,20,.92);
-    }
-
+    /* Niebieska kropka GPS */
     .gps-marker {
       width: 18px;
       height: 18px;
       background: #1683ff;
-      border: 3px solid #fff;
+      border: 3px solid white;
       border-radius: 50%;
       box-shadow:
-        0 0 0 2px rgba(22,131,255,.25),
-        0 2px 6px rgba(0,0,0,.35);
+        0 0 0 2px rgba(22,131,255,0.25),
+        0 2px 6px rgba(0,0,0,0.35);
     }
 
+    /* Strzałka kierunku */
     .heading-arrow {
       width: 0;
       height: 0;
       border-left: 9px solid transparent;
       border-right: 9px solid transparent;
       border-bottom: 22px solid #1683ff;
-      filter: drop-shadow(0 1px 2px rgba(0,0,0,.45));
-      transform-origin: 50% 50%;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
     }
 
+    /* Informacja o błędzie */
     #status {
       position: absolute;
       z-index: 2000;
@@ -106,20 +92,17 @@
       bottom: 12px;
       transform: translateX(-50%);
       padding: 7px 12px;
-      background: rgba(0,0,0,.76);
-      color: #fff;
+      background: rgba(0,0,0,0.72);
+      color: white;
       border-radius: 10px;
       font-size: 12px;
       display: none;
       white-space: nowrap;
-      max-width: calc(100% - 24px);
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .leaflet-control-attribution {
       font-size: 9px !important;
-      background: rgba(255,255,255,.72) !important;
+      background: rgba(255,255,255,0.7) !important;
     }
 
     .leaflet-control-zoom {
@@ -129,186 +112,212 @@
 </head>
 
 <body>
+
   <div id="map"></div>
 
   <div class="live-box">
-    <span class="live-dot"></span>LIVE
+    <span class="live-dot"></span>
+    LIVE
   </div>
-
-  <button id="gpsButton" class="gps-button" type="button">
-    📍 Włącz GPS
-  </button>
 
   <div id="status"></div>
 
+  <!-- Leaflet -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
+    // ==========================================
+    // USTAWIENIA
+    // ==========================================
+
+    const GPS_UPDATE_TIME = 5000; // 5 sekund
     const START_ZOOM = 17;
     const AUTO_CENTER = true;
 
-    const map = L.map("map", {
+    // ==========================================
+    // MAPA
+    // ==========================================
+
+    const map = L.map('map', {
       zoomControl: false,
       attributionControl: true,
       zoomAnimation: true
     });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    // OpenStreetMap
+    L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        maxZoom: 19,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">' +
+          'OpenStreetMap</a> contributors'
+      }
+    ).addTo(map);
 
-    // Widok startowy, zanim GPS poda pozycję.
+    // Początkowo neutralny widok Polski
     map.setView([52.2297, 21.0122], 6);
+
+    // ==========================================
+    // MARKER GPS
+    // ==========================================
 
     let gpsMarker = null;
     let headingMarker = null;
     let firstLocation = true;
-    let watchId = null;
 
     const gpsIcon = L.divIcon({
-      className: "",
+      className: '',
       html: '<div class="gps-marker"></div>',
       iconSize: [18, 18],
       iconAnchor: [9, 9]
     });
 
     const headingIcon = L.divIcon({
-      className: "",
+      className: '',
       html: '<div class="heading-arrow"></div>',
       iconSize: [18, 22],
       iconAnchor: [9, 11]
     });
 
-    const status = document.getElementById("status");
-    const gpsButton = document.getElementById("gpsButton");
+    // ==========================================
+    // STATUS
+    // ==========================================
+
+    const status = document.getElementById('status');
 
     function showStatus(text) {
       status.textContent = text;
-      status.style.display = "block";
+      status.style.display = 'block';
     }
 
     function hideStatus() {
-      status.style.display = "none";
+      status.style.display = 'none';
     }
 
-    function updatePosition(position) {
-      hideStatus();
+    // ==========================================
+    // GPS
+    // ==========================================
 
-      const latitude = position.coords.latitude;
-      const longitude = position.coords.longitude;
-      const accuracy = position.coords.accuracy;
-      const heading = position.coords.heading;
-
-      const location = [latitude, longitude];
-
-      if (!gpsMarker) {
-        gpsMarker = L.marker(location, {
-          icon: gpsIcon,
-          zIndexOffset: 1000
-        }).addTo(map);
-      } else {
-        gpsMarker.setLatLng(location);
-      }
-
-      if (AUTO_CENTER) {
-        if (firstLocation) {
-          map.setView(location, START_ZOOM, { animate: true });
-          firstLocation = false;
-        } else {
-          map.panTo(location, {
-            animate: true,
-            duration: 0.8
-          });
-        }
-      }
-
-      // Kierunek jazdy jest dostępny głównie podczas ruchu.
-      if (
-        heading !== null &&
-        !Number.isNaN(heading) &&
-        accuracy < 100
-      ) {
-        if (!headingMarker) {
-          headingMarker = L.marker(location, {
-            icon: headingIcon,
-            zIndexOffset: 999
-          }).addTo(map);
-        } else {
-          headingMarker.setLatLng(location);
-        }
-
-        const element = headingMarker.getElement();
-
-        if (element) {
-          const arrow = element.querySelector(".heading-arrow");
-          if (arrow) {
-            arrow.style.transform = "rotate(" + heading + "deg)";
-          }
-        }
-      }
-
-      console.log(
-        "PRISM GPS:",
-        latitude,
-        longitude,
-        "accuracy:",
-        accuracy,
-        "heading:",
-        heading
-      );
-    }
-
-    function gpsError(error) {
-      let message = "Nie można pobrać lokalizacji GPS.";
-
-      switch (error.code) {
-        case error.PERMISSION_DENIED:
-          message =
-            "Brak zgody na lokalizację. Zezwól PRISM na dostęp do lokalizacji i spróbuj ponownie.";
-          break;
-        case error.POSITION_UNAVAILABLE:
-          message = "Lokalizacja GPS jest niedostępna.";
-          break;
-        case error.TIMEOUT:
-          message = "GPS nie odpowiedział na czas. Spróbuj ponownie.";
-          break;
-      }
-
-      showStatus(message);
-      gpsButton.textContent = "📍 Włącz GPS";
-      console.log("PRISM GPS error:", error);
-    }
-
-    function startGPS() {
+    function updateGPS() {
       if (!navigator.geolocation) {
-        showStatus("Ta przeglądarka nie obsługuje GPS.");
+        showStatus('GPS nie jest obsługiwany przez tę przeglądarkę');
         return;
       }
 
-      gpsButton.disabled = true;
-      gpsButton.textContent = "📍 GPS aktywny";
+      navigator.geolocation.getCurrentPosition(
+        function(position) {
+          hideStatus();
 
-      // watchPosition jest lepszy dla jazdy niż odpytywanie co 5 sekund:
-      // przeglądarka sama dostarcza nowe pomiary, gdy pozycja się zmienia.
-      watchId = navigator.geolocation.watchPosition(
-        updatePosition,
-        gpsError,
+          const latitude = position.coords.latitude;
+          const longitude = position.coords.longitude;
+          const accuracy = position.coords.accuracy;
+          const heading = position.coords.heading;
+
+          const location = [latitude, longitude];
+
+          // Marker GPS
+          if (!gpsMarker) {
+            gpsMarker = L.marker(location, {
+              icon: gpsIcon,
+              zIndexOffset: 1000
+            }).addTo(map);
+          } else {
+            gpsMarker.setLatLng(location);
+          }
+
+          // Automatyczne centrowanie
+          if (AUTO_CENTER) {
+            if (firstLocation) {
+              map.setView(location, START_ZOOM, {
+                animate: true
+              });
+              firstLocation = false;
+            } else {
+              map.panTo(location, {
+                animate: true,
+                duration: 0.8
+              });
+            }
+          }
+
+          // Kierunek jazdy
+          if (
+            heading !== null &&
+            !isNaN(heading) &&
+            accuracy < 100
+          ) {
+            if (!headingMarker) {
+              headingMarker = L.marker(location, {
+                icon: headingIcon,
+                zIndexOffset: 999
+              }).addTo(map);
+            } else {
+              headingMarker.setLatLng(location);
+            }
+
+            const element = headingMarker.getElement();
+
+            if (element) {
+              const arrow = element.querySelector('.heading-arrow');
+
+              if (arrow) {
+                arrow.style.transform =
+                  'rotate(' + heading + 'deg)';
+              }
+            }
+          }
+
+          console.log(
+            'GPS:',
+            latitude,
+            longitude,
+            'accuracy:',
+            accuracy,
+            'heading:',
+            heading
+          );
+        },
+
+        function(error) {
+          let message = 'Nie można pobrać lokalizacji GPS';
+
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              message = 'Brak zgody na dostęp do lokalizacji';
+              break;
+
+            case error.POSITION_UNAVAILABLE:
+              message = 'Lokalizacja GPS niedostępna';
+              break;
+
+            case error.TIMEOUT:
+              message = 'Przekroczono czas oczekiwania na GPS';
+              break;
+          }
+
+          showStatus(message);
+
+          console.log('GPS error:', error);
+        },
+
         {
           enableHighAccuracy: true,
-          maximumAge: 2000,
-          timeout: 15000
+          maximumAge: 3000,
+          timeout: 10000
         }
       );
     }
 
-    gpsButton.addEventListener("click", startGPS);
+    // ==========================================
+    // START GPS
+    // ==========================================
 
-    // Na zwykłej stronie można kliknąć przycisk.
-    // W PRISM Browser Source najpierw dodaj stronę, a następnie kliknij
-    // "Włącz GPS" w podglądzie źródła. Dzięki temu PRISM nie pyta
-    // o lokalizację natychmiast po każdym odświeżeniu strony.
+    updateGPS();
+
+    // Aktualizacja co 5 sekund
+    setInterval(updateGPS, GPS_UPDATE_TIME);
   </script>
+
 </body>
 </html>
