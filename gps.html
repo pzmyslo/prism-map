@@ -221,8 +221,7 @@ const SERVER =
 
 
 /*
- * Częstotliwość pobierania GPS.
- * 2000 ms = 2 sekundy
+ * Częstotliwość pobierania GPS (w ms).
  */
 
 const REFRESH_TIME =
@@ -230,13 +229,13 @@ const REFRESH_TIME =
 
 
 /*
- * Maksymalny wiek pozycji w sekundach.
- * Jeśli ostatni sygnał z aplikacji jest starszy niż 15 sekund,
- * pozycje znikają z mapy.
+ * Maksymalny czas bez nowych danych (w sekundach).
+ * Jeśli przez 20s nie wpłynie nowa pozycja z aplikacji,
+ * uznaczenie wygasa i ikony znika z mapy.
  */
 
 const MAX_POSITION_AGE_SECONDS =
-    15;
+    20;
 
 
 /*
@@ -328,7 +327,7 @@ const gpsPointIcon =
 
 
 /* =====================================================
-   IKONA STRZAŁKI (Wymiary zmniejszone o 50%)
+   IKONA STRZAŁKI
    ===================================================== */
 
 const gpsArrowIcon =
@@ -350,7 +349,7 @@ const gpsArrowIcon =
 
 
 /* =====================================================
-   ZMIENNE
+   ZMIENNE ŚLEDZENIA
    ===================================================== */
 
 let gpsMarker =
@@ -365,8 +364,16 @@ let firstPosition =
     true;
 
 
+let lastServerTimeStr =
+    null;
+
+
+let lastDataReceivedTimestamp =
+    Date.now();
+
+
 /* =====================================================
-   USUWANIE MARKERÓW
+   USUWANIE MARKERÓW Z MAPY
    ===================================================== */
 
 function clearMarkers() {
@@ -474,47 +481,46 @@ async function updateGPS() {
 
     try {
 
-        /*
-         * Pobieramy dane o pozycji oraz status urządzenia
-         */
+        const response =
+            await fetch(
 
-        const headers = {
+                SERVER +
+                "/api/positions",
 
-            "Accept":
-                "application/json",
+                {
 
-            "Authorization":
-                "Bearer " +
-                TOKEN
+                    method:
+                        "GET",
 
-        };
+                    cache:
+                        "no-store",
 
+                    headers:
+                        {
 
-        const [posResponse, devResponse] =
-            await Promise.all([
+                            "Accept":
+                                "application/json",
 
-                fetch(
-                    SERVER + "/api/positions",
-                    { cache: "no-store", headers: headers }
-                ),
+                            "Authorization":
+                                "Bearer " +
+                                TOKEN
 
-                fetch(
-                    SERVER + "/api/devices",
-                    { cache: "no-store", headers: headers }
-                ).catch(() => null)
+                        }
 
-            ]);
+                }
+
+            );
 
 
         if (
-            !posResponse.ok
+            !response.ok
         ) {
 
             clearMarkers();
 
             showStatus(
                 "GPS HTTP " +
-                posResponse.status
+                response.status
             );
 
             return;
@@ -523,7 +529,7 @@ async function updateGPS() {
 
 
         const positions =
-            await posResponse.json();
+            await response.json();
 
 
         if (
@@ -546,75 +552,60 @@ async function updateGPS() {
             positions[0];
 
 
+        const currentServerTimeStr =
+            data.serverTime ||
+            data.fixTime;
+
+
         /* =============================================
-           1. SPRAWDZENIE STATUSU URZĄDZENIA W TRACCAR
+           1. WYKRYWANIE NOWEJ RAMKI DANYCH
            ============================================= */
 
         if (
-            devResponse &&
-            devResponse.ok
+            currentServerTimeStr !==
+            lastServerTimeStr
         ) {
 
-            const devices =
-                await devResponse.json();
+            lastServerTimeStr =
+                currentServerTimeStr;
 
 
-            if (
-                Array.isArray(devices) &&
-                devices.length > 0
-            ) {
-
-                const device =
-                    devices.find(d => d.id === data.deviceId) ||
-                    devices[0];
-
-
-                if (
-                    device &&
-                    device.status &&
-                    device.status !== "online"
-                ) {
-
-                    clearMarkers();
-
-                    showStatus(
-                        "URZĄDZENIE OFFLINE"
-                    );
-
-                    return;
-
-                }
-
-            }
+            lastDataReceivedTimestamp =
+                Date.now();
 
         }
 
 
         /* =============================================
-           2. SPRAWDZENIE WIEKU POZYCJI GPS
+           2. OBLICZANIE WIEKU POZYCJI (WEDŁUG SERWERA)
            ============================================= */
 
-        const fixTimeStr =
-            data.fixTime ||
-            data.serverTime ||
-            data.deviceTime;
+        const httpDateHeader =
+            response.headers.get("date");
 
 
-        const fixTime =
-            Date.parse(fixTimeStr) || 0;
+        const serverNow =
+            httpDateHeader
+                ? new Date(httpDateHeader).getTime()
+                : Date.now();
 
 
-        const nowTime =
-            Date.now();
+        const posTime =
+            new Date(currentServerTimeStr).getTime();
 
 
-        const ageInSeconds =
-            Math.abs(nowTime - fixTime) / 1000;
+        const ageOnServerSeconds =
+            Math.max(0, (serverNow - posTime) / 1000);
 
 
+        const localAgeSeconds =
+            (Date.now() - lastDataReceivedTimestamp) / 1000;
+
+
+        /* Jeśli od 20 sekund nie było nowej pozycji */
         if (
-            ageInSeconds >
-            MAX_POSITION_AGE_SECONDS
+            ageOnServerSeconds > MAX_POSITION_AGE_SECONDS ||
+            localAgeSeconds > MAX_POSITION_AGE_SECONDS
         ) {
 
             clearMarkers();
@@ -629,7 +620,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           WSPÓŁRZĘDNE
+           3. WSPÓŁRZĘDNE
            ============================================= */
 
         const latitude =
@@ -645,12 +636,8 @@ async function updateGPS() {
 
 
         if (
-            !Number.isFinite(
-                latitude
-            ) ||
-            !Number.isFinite(
-                longitude
-            )
+            !Number.isFinite(latitude) ||
+            !Number.isFinite(longitude)
         ) {
 
             clearMarkers();
@@ -672,7 +659,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           AKTUALNY CZERWONY PUNKT GPS
+           4. MARKER PUNKTU GPS
            ============================================= */
 
         if (
@@ -707,7 +694,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           KIERUNEK JAZDY (ŻÓŁTA STRZAŁKA)
+           5. MARKER KIERUNKU (ŻÓŁTA STRZAŁKA)
            ============================================= */
 
         const course =
@@ -786,7 +773,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           POZYCJONOWANIE MAPY
+           6. POZYCJONOWANIE MAPY
            ============================================= */
 
         if (
@@ -819,7 +806,7 @@ async function updateGPS() {
         }
 
 
-        /* Wyczyszczenie statusu – sygnał jest poprawny */
+        /* Sygnał jest aktualny - ukrywamy status */
         showStatus("");
 
     }
