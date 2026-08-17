@@ -231,12 +231,12 @@ const REFRESH_TIME =
 
 /*
  * Maksymalny wiek pozycji w sekundach.
- * Jeśli ostatnia pozycja jest starsza niż ten czas,
- * uznajemy urządzenie za OFFLINE i ukrywamy znacznik.
+ * Jeśli ostatni sygnał z aplikacji jest starszy niż 15 sekund,
+ * pozycje znikają z mapy.
  */
 
 const MAX_POSITION_AGE_SECONDS =
-    30;
+    15;
 
 
 /*
@@ -328,7 +328,7 @@ const gpsPointIcon =
 
 
 /* =====================================================
-   IKONA STRZAŁKI
+   IKONA STRZAŁKI (Wymiary zmniejszone o 50%)
    ===================================================== */
 
 const gpsArrowIcon =
@@ -474,50 +474,47 @@ async function updateGPS() {
 
     try {
 
-        const response =
-            await fetch(
+        /*
+         * Pobieramy dane o pozycji oraz status urządzenia
+         */
 
-                SERVER +
-                "/api/positions",
+        const headers = {
 
-                {
+            "Accept":
+                "application/json",
 
-                    method:
-                        "GET",
+            "Authorization":
+                "Bearer " +
+                TOKEN
 
-                    cache:
-                        "no-store",
-
-                    headers:
-                        {
-
-                            "Accept":
-                                "application/json",
-
-                            "Authorization":
-                                "Bearer " +
-                                TOKEN
-
-                        }
-
-                }
-
-            );
+        };
 
 
-        /* =============================================
-           BŁĄD HTTP
-           ============================================= */
+        const [posResponse, devResponse] =
+            await Promise.all([
+
+                fetch(
+                    SERVER + "/api/positions",
+                    { cache: "no-store", headers: headers }
+                ),
+
+                fetch(
+                    SERVER + "/api/devices",
+                    { cache: "no-store", headers: headers }
+                ).catch(() => null)
+
+            ]);
+
 
         if (
-            !response.ok
+            !posResponse.ok
         ) {
 
             clearMarkers();
 
             showStatus(
                 "GPS HTTP " +
-                response.status
+                posResponse.status
             );
 
             return;
@@ -525,19 +522,12 @@ async function updateGPS() {
         }
 
 
-        /* =============================================
-           JSON
-           ============================================= */
-
         const positions =
-            await response.json();
+            await posResponse.json();
 
 
         if (
-            !Array.isArray(
-                positions
-            )
-            ||
+            !Array.isArray(positions) ||
             positions.length === 0
         ) {
 
@@ -557,14 +547,61 @@ async function updateGPS() {
 
 
         /* =============================================
-           SPRAWDZENIE WIEKU POZYCJI (Sygnał wygasł?)
+           1. SPRAWDZENIE STATUSU URZĄDZENIA W TRACCAR
            ============================================= */
 
-        const lastFixTime =
-            new Date(
-                data.fixTime ||
-                data.serverTime
-            ).getTime();
+        if (
+            devResponse &&
+            devResponse.ok
+        ) {
+
+            const devices =
+                await devResponse.json();
+
+
+            if (
+                Array.isArray(devices) &&
+                devices.length > 0
+            ) {
+
+                const device =
+                    devices.find(d => d.id === data.deviceId) ||
+                    devices[0];
+
+
+                if (
+                    device &&
+                    device.status &&
+                    device.status !== "online"
+                ) {
+
+                    clearMarkers();
+
+                    showStatus(
+                        "URZĄDZENIE OFFLINE"
+                    );
+
+                    return;
+
+                }
+
+            }
+
+        }
+
+
+        /* =============================================
+           2. SPRAWDZENIE WIEKU POZYCJI GPS
+           ============================================= */
+
+        const fixTimeStr =
+            data.fixTime ||
+            data.serverTime ||
+            data.deviceTime;
+
+
+        const fixTime =
+            Date.parse(fixTimeStr) || 0;
 
 
         const nowTime =
@@ -572,11 +609,7 @@ async function updateGPS() {
 
 
         const ageInSeconds =
-            (
-                nowTime -
-                lastFixTime
-            ) /
-            1000;
+            Math.abs(nowTime - fixTime) / 1000;
 
 
         if (
@@ -587,7 +620,7 @@ async function updateGPS() {
             clearMarkers();
 
             showStatus(
-                "URZĄDZENIE OFFLINE"
+                "BRAK SYGNAŁU (OFFLINE)"
             );
 
             return;
@@ -614,8 +647,7 @@ async function updateGPS() {
         if (
             !Number.isFinite(
                 latitude
-            )
-            ||
+            ) ||
             !Number.isFinite(
                 longitude
             )
@@ -675,7 +707,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           KIERUNEK JAZDY
+           KIERUNEK JAZDY (ŻÓŁTA STRZAŁKA)
            ============================================= */
 
         const course =
@@ -787,10 +819,7 @@ async function updateGPS() {
         }
 
 
-        /* =============================================
-           WSZYSTKO OK
-           ============================================= */
-
+        /* Wyczyszczenie statusu – sygnał jest poprawny */
         showStatus("");
 
     }
