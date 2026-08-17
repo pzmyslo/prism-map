@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="pl">
 
 <head>
@@ -126,7 +127,7 @@ body,
 
 
 /* =====================================================
-   STRZAŁKA KIERUNKU (Pomniejszona o 50%, Kolor Żółty)
+   STRZAŁKA KIERUNKU (Pomniejszona o 50%, Kolor żółty)
    ===================================================== */
 
 .gps-arrow {
@@ -152,40 +153,33 @@ body,
 
 
 /* =====================================================
-   EKRAN BRAKU SYGNAŁU (Czarny ekran)
+   STATUS BŁĘDU
    ===================================================== */
 
-#no-signal-overlay {
+#status {
 
-    position: fixed;
+    position: absolute;
 
-    left: 0;
-    top: 0;
+    left: 5px;
+    top: 5px;
 
-    width: 100vw;
-    height: 100vh;
+    z-index: 10000;
 
-    background: #000000;
+    padding:
+        4px 7px;
 
-    color: #ffffff;
+    border-radius: 5px;
 
-    z-index: 99999;
+    background:
+        rgba(0,0,0,0.78);
+
+    color: white;
+
+    font:
+        10px Arial,
+        sans-serif;
 
     display: none;
-
-    justify-content: center;
-
-    align-items: center;
-
-    font-family: Arial, sans-serif;
-
-    font-size: 22px;
-
-    font-weight: bold;
-
-    letter-spacing: 1px;
-
-    text-align: center;
 
 }
 
@@ -199,8 +193,7 @@ body,
 
 <div id="map"></div>
 
-<!-- Czarny ekran braku sygnału -->
-<div id="no-signal-overlay">BRAK SYGNAŁU GPS</div>
+<div id="status"></div>
 
 
 <script>
@@ -208,6 +201,15 @@ body,
 /* =====================================================
    KONFIGURACJA
    ===================================================== */
+
+
+/*
+ * TOKEN JEST POBIERANY Z ADRESU STRONY.
+ *
+ * PRZYKŁAD:
+ *
+ * traccar-mini-map.html?token=TWÓJ_TOKEN
+ */
 
 const params =
     new URLSearchParams(
@@ -219,17 +221,29 @@ const TOKEN =
     params.get("token");
 
 
+/*
+ * Serwer Traccar
+ */
+
 const SERVER =
     "https://demo.traccar.org";
 
 
 /*
- * Częstotliwość pobierania GPS: 10 sekund (10000 ms)
+ * Częstotliwość pobierania GPS.
+ *
+ * 2000 ms = 2 sekundy
  */
 
 const REFRESH_TIME =
-    10000;
+    2000;
 
+
+/*
+ * Promień obszaru mapy wokół obiektu.
+ *
+ * 100 metrów od obiektu.
+ */
 
 const MAP_RADIUS_METERS =
     100;
@@ -354,33 +368,62 @@ let firstPosition =
 
 
 /* =====================================================
-   OBSŁUGA EKRANU BRAKU SYGNAŁU
+   USUWANIE MARKERÓW W PRZYPADKU BRAKU SYGNAŁU
    ===================================================== */
 
-function setSignalState(
-    hasSignal
+function clearMarkers() {
+
+    if (
+        gpsMarker
+    ) {
+
+        map.removeLayer(
+            gpsMarker
+        );
+
+        gpsMarker =
+            null;
+
+    }
+
+    if (
+        directionMarker
+    ) {
+
+        map.removeLayer(
+            directionMarker
+        );
+
+        directionMarker =
+            null;
+
+    }
+
+}
+
+
+/* =====================================================
+   STATUS
+   ===================================================== */
+
+function showStatus(
+    text
 ) {
 
-    const overlay =
+    const element =
         document.getElementById(
-            "no-signal-overlay"
+            "status"
         );
 
 
-    if (
-        hasSignal
-    ) {
+    element.textContent =
+        text;
 
-        overlay.style.display =
-            "none";
 
-    }
-    else {
-
-        overlay.style.display =
-            "flex";
-
-    }
+    element.style.display =
+        text
+            ? "block"
+            : "none";
 
 }
 
@@ -464,18 +507,29 @@ async function updateGPS() {
             );
 
 
+        /* =============================================
+           BŁĄD HTTP - BRAK SYGNAŁU
+           ============================================= */
+
         if (
             !response.ok
         ) {
 
-            setSignalState(
-                false
+            clearMarkers();
+
+            showStatus(
+                "GPS HTTP " +
+                response.status
             );
 
             return;
 
         }
 
+
+        /* =============================================
+           JSON
+           ============================================= */
 
         const positions =
             await response.json();
@@ -489,8 +543,10 @@ async function updateGPS() {
             positions.length === 0
         ) {
 
-            setSignalState(
-                false
+            clearMarkers();
+
+            showStatus(
+                "BRAK POZYCJI"
             );
 
             return;
@@ -514,6 +570,10 @@ async function updateGPS() {
             );
 
 
+        /* =============================================
+           SPRAWDZENIE WSPÓŁRZĘDNYCH
+           ============================================= */
+
         if (
             !Number.isFinite(
                 latitude
@@ -524,8 +584,10 @@ async function updateGPS() {
             )
         ) {
 
-            setSignalState(
-                false
+            clearMarkers();
+
+            showStatus(
+                "BŁĘDNA POZYCJA"
             );
 
             return;
@@ -540,13 +602,10 @@ async function updateGPS() {
             ];
 
 
-        /* Sygnał jest prawidłowy — ukrywamy czarny ekran */
-        setSignalState(
-            true
-        );
+        /* =============================================
+           AKTUALNY CZERWONY PUNKT GPS
+           ============================================= */
 
-
-        /* Marker pozycji */
         if (
             !gpsMarker
         ) {
@@ -578,7 +637,10 @@ async function updateGPS() {
         }
 
 
-        /* Kierunek jazdy */
+        /* =============================================
+           KIERUNEK JAZDY
+           ============================================= */
+
         const course =
             Number(
                 data.course
@@ -640,7 +702,23 @@ async function updateGPS() {
             }
 
         }
+        else if (
+            directionMarker
+        ) {
 
+            map.removeLayer(
+                directionMarker
+            );
+
+            directionMarker =
+                null;
+
+        }
+
+
+        /* =============================================
+           POZYCJONOWANIE MAPY
+           ============================================= */
 
         if (
             firstPosition
@@ -649,7 +727,6 @@ async function updateGPS() {
             centerMapAroundGPS(
                 position
             );
-
 
             firstPosition =
                 false;
@@ -672,14 +749,22 @@ async function updateGPS() {
 
         }
 
+
+        /* =============================================
+           WSZYSTKO OK
+           ============================================= */
+
+        showStatus("");
+
     }
     catch (
         error
     ) {
 
-        /* W przypadku jakiegokolwiek błędu połączenia wyświetlamy brak sygnału */
-        setSignalState(
-            false
+        clearMarkers();
+
+        showStatus(
+            "BŁĄD GPS"
         );
 
     }
@@ -697,8 +782,10 @@ function start() {
         !TOKEN
     ) {
 
-        setSignalState(
-            false
+        clearMarkers();
+
+        showStatus(
+            "BRAK TOKENU"
         );
 
         return;
@@ -719,6 +806,10 @@ function start() {
 
 }
 
+
+/* =====================================================
+   URUCHOMIENIE
+   ===================================================== */
 
 start();
 
