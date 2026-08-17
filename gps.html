@@ -140,7 +140,6 @@ body,
     border-right:
         4px solid transparent;
 
-    /* Zmieniono kolor na żółty */
     border-bottom:
         14px solid yellow;
 
@@ -232,11 +231,11 @@ const SERVER =
 /*
  * Częstotliwość pobierania GPS.
  *
- * 2000 ms = 2 sekundy
+ * 1000 ms = 1 sekunda (zmieniono z 2000 ms)
  */
 
 const REFRESH_TIME =
-    2000;
+    1000;
 
 
 /*
@@ -786,7 +785,7 @@ function start() {
 
 
     /*
-     * Kolejne odczyty co 2 sekundy.
+     * Kolejne odczyty co 1 sekundę.
      */
 
     setInterval(
