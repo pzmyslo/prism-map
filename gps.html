@@ -153,7 +153,7 @@ body,
 
 
 /* =====================================================
-   STATUS BŁĘDU / OFFLINE
+   STATUS BŁĘDU (Pojawia się tylko przy błędzie HTTP)
    ===================================================== */
 
 #status {
@@ -221,7 +221,7 @@ const SERVER =
 
 
 /*
- * Częstotliwość pobierania GPS (w ms).
+ * Częstotliwość pobierania pozycji (2 sekundy)
  */
 
 const REFRESH_TIME =
@@ -229,17 +229,7 @@ const REFRESH_TIME =
 
 
 /*
- * Maksymalny czas bez nowych danych (w sekundach).
- * Jeśli przez 20s nie wpłynie nowa pozycja z aplikacji,
- * uznaczenie wygasa i ikony znika z mapy.
- */
-
-const MAX_POSITION_AGE_SECONDS =
-    20;
-
-
-/*
- * Promień obszaru mapy wokół obiektu (w metrach).
+ * Promień obszaru mapy wokół obiektu (100 metrów)
  */
 
 const MAP_RADIUS_METERS =
@@ -247,7 +237,7 @@ const MAP_RADIUS_METERS =
 
 
 /* =====================================================
-   MAPA
+   MAPA LEAFLET
    ===================================================== */
 
 const map =
@@ -284,7 +274,7 @@ const map =
 
 
 /* =====================================================
-   OPENSTREETMAP
+   WARSTWA MAPY OPENSTREETMAP
    ===================================================== */
 
 L.tileLayer(
@@ -318,16 +308,16 @@ const gpsPointIcon =
             '<div class="gps-point"></div>',
 
         iconSize:
-            [18,18],
+            [18, 18],
 
         iconAnchor:
-            [9,9]
+            [9, 9]
 
     });
 
 
 /* =====================================================
-   IKONA STRZAŁKI
+   IKONA ŻÓŁTEJ STRZAŁKI (50% WIELKOŚCI)
    ===================================================== */
 
 const gpsArrowIcon =
@@ -340,16 +330,16 @@ const gpsArrowIcon =
             '<div id="directionArrow" class="gps-arrow"></div>',
 
         iconSize:
-            [8,14],
+            [8, 14],
 
         iconAnchor:
-            [4,7]
+            [4, 7]
 
     });
 
 
 /* =====================================================
-   ZMIENNE ŚLEDZENIA
+   ZMIENNE
    ===================================================== */
 
 let gpsMarker =
@@ -362,49 +352,6 @@ let directionMarker =
 
 let firstPosition =
     true;
-
-
-let lastServerTimeStr =
-    null;
-
-
-let lastDataReceivedTimestamp =
-    Date.now();
-
-
-/* =====================================================
-   USUWANIE MARKERÓW Z MAPY
-   ===================================================== */
-
-function clearMarkers() {
-
-    if (
-        gpsMarker
-    ) {
-
-        map.removeLayer(
-            gpsMarker
-        );
-
-        gpsMarker =
-            null;
-
-    }
-
-    if (
-        directionMarker
-    ) {
-
-        map.removeLayer(
-            directionMarker
-        );
-
-        directionMarker =
-            null;
-
-    }
-
-}
 
 
 /* =====================================================
@@ -434,7 +381,7 @@ function showStatus(
 
 
 /* =====================================================
-   USTAWIENIE MAPY W PROMIENIU 100 METRÓW
+   CENTROWANIE MAPY W PROMIENIU 100M
    ===================================================== */
 
 function centerMapAroundGPS(
@@ -448,14 +395,14 @@ function centerMapAroundGPS(
         );
 
 
-    const north =
+    const bounds =
         center.toBounds(
             MAP_RADIUS_METERS * 2
         );
 
 
     map.fitBounds(
-        north,
+        bounds,
         {
 
             padding:
@@ -474,7 +421,7 @@ function centerMapAroundGPS(
 
 
 /* =====================================================
-   POBIERANIE AKTUALNEGO GPS Z TRACCAR
+   AKTUALIZACJA POZYCJI GPS
    ===================================================== */
 
 async function updateGPS() {
@@ -484,8 +431,7 @@ async function updateGPS() {
         const response =
             await fetch(
 
-                SERVER +
-                "/api/positions",
+                SERVER + "/api/positions",
 
                 {
 
@@ -516,11 +462,8 @@ async function updateGPS() {
             !response.ok
         ) {
 
-            clearMarkers();
-
             showStatus(
-                "GPS HTTP " +
-                response.status
+                "BŁĄD HTTP " + response.status
             );
 
             return;
@@ -537,8 +480,6 @@ async function updateGPS() {
             positions.length === 0
         ) {
 
-            clearMarkers();
-
             showStatus(
                 "BRAK POZYCJI"
             );
@@ -552,87 +493,12 @@ async function updateGPS() {
             positions[0];
 
 
-        const currentServerTimeStr =
-            data.serverTime ||
-            data.fixTime;
-
-
-        /* =============================================
-           1. WYKRYWANIE NOWEJ RAMKI DANYCH
-           ============================================= */
-
-        if (
-            currentServerTimeStr !==
-            lastServerTimeStr
-        ) {
-
-            lastServerTimeStr =
-                currentServerTimeStr;
-
-
-            lastDataReceivedTimestamp =
-                Date.now();
-
-        }
-
-
-        /* =============================================
-           2. OBLICZANIE WIEKU POZYCJI (WEDŁUG SERWERA)
-           ============================================= */
-
-        const httpDateHeader =
-            response.headers.get("date");
-
-
-        const serverNow =
-            httpDateHeader
-                ? new Date(httpDateHeader).getTime()
-                : Date.now();
-
-
-        const posTime =
-            new Date(currentServerTimeStr).getTime();
-
-
-        const ageOnServerSeconds =
-            Math.max(0, (serverNow - posTime) / 1000);
-
-
-        const localAgeSeconds =
-            (Date.now() - lastDataReceivedTimestamp) / 1000;
-
-
-        /* Jeśli od 20 sekund nie było nowej pozycji */
-        if (
-            ageOnServerSeconds > MAX_POSITION_AGE_SECONDS ||
-            localAgeSeconds > MAX_POSITION_AGE_SECONDS
-        ) {
-
-            clearMarkers();
-
-            showStatus(
-                "BRAK SYGNAŁU (OFFLINE)"
-            );
-
-            return;
-
-        }
-
-
-        /* =============================================
-           3. WSPÓŁRZĘDNE
-           ============================================= */
-
         const latitude =
-            Number(
-                data.latitude
-            );
+            Number(data.latitude);
 
 
         const longitude =
-            Number(
-                data.longitude
-            );
+            Number(data.longitude);
 
 
         if (
@@ -640,10 +506,8 @@ async function updateGPS() {
             !Number.isFinite(longitude)
         ) {
 
-            clearMarkers();
-
             showStatus(
-                "BŁĘDNA POZYCJA"
+                "BŁĘDNE WSPÓŁRZĘDNE"
             );
 
             return;
@@ -652,14 +516,11 @@ async function updateGPS() {
 
 
         const position =
-            [
-                latitude,
-                longitude
-            ];
+            [latitude, longitude];
 
 
         /* =============================================
-           4. MARKER PUNKTU GPS
+           1. CZERWONY PUNKT GPS
            ============================================= */
 
         if (
@@ -694,19 +555,15 @@ async function updateGPS() {
 
 
         /* =============================================
-           5. MARKER KIERUNKU (ŻÓŁTA STRZAŁKA)
+           2. ŻÓŁTA STRZAŁKA KIERUNKU JAZDY
            ============================================= */
 
         const course =
-            Number(
-                data.course
-            );
+            Number(data.course);
 
 
         if (
-            Number.isFinite(
-                course
-            )
+            Number.isFinite(course)
         ) {
 
             if (
@@ -751,9 +608,7 @@ async function updateGPS() {
             ) {
 
                 arrow.style.transform =
-                    "rotate(" +
-                    course +
-                    "deg)";
+                    "rotate(" + course + "deg)";
 
             }
 
@@ -773,7 +628,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           6. POZYCJONOWANIE MAPY
+           3. POZYCJONOWANIE MAPY
            ============================================= */
 
         if (
@@ -806,7 +661,7 @@ async function updateGPS() {
         }
 
 
-        /* Sygnał jest aktualny - ukrywamy status */
+        /* Ukrycie komunikatów błędów po poprawnym pobraniu danych */
         showStatus("");
 
     }
@@ -814,10 +669,8 @@ async function updateGPS() {
         error
     ) {
 
-        clearMarkers();
-
         showStatus(
-            "BŁĄD GPS"
+            "BŁĄD POŁĄCZENIA"
         );
 
     }
@@ -834,8 +687,6 @@ function start() {
     if (
         !TOKEN
     ) {
-
-        clearMarkers();
 
         showStatus(
             "BRAK TOKENU"
