@@ -153,7 +153,7 @@ body,
 
 
 /* =====================================================
-   STATUS BŁĘDU
+   STATUS BŁĘDU / OFFLINE
    ===================================================== */
 
 #status {
@@ -202,15 +202,6 @@ body,
    KONFIGURACJA
    ===================================================== */
 
-
-/*
- * TOKEN JEST POBIERANY Z ADRESU STRONY.
- *
- * PRZYKŁAD:
- *
- * traccar-mini-map.html?token=TWÓJ_TOKEN
- */
-
 const params =
     new URLSearchParams(
         window.location.search
@@ -231,7 +222,6 @@ const SERVER =
 
 /*
  * Częstotliwość pobierania GPS.
- *
  * 2000 ms = 2 sekundy
  */
 
@@ -240,9 +230,17 @@ const REFRESH_TIME =
 
 
 /*
- * Promień obszaru mapy wokół obiektu.
- *
- * 100 metrów od obiektu.
+ * Maksymalny wiek pozycji w sekundach.
+ * Jeśli ostatnia pozycja jest starsza niż ten czas,
+ * uznajemy urządzenie za OFFLINE i ukrywamy znacznik.
+ */
+
+const MAX_POSITION_AGE_SECONDS =
+    30;
+
+
+/*
+ * Promień obszaru mapy wokół obiektu (w metrach).
  */
 
 const MAP_RADIUS_METERS =
@@ -330,7 +328,7 @@ const gpsPointIcon =
 
 
 /* =====================================================
-   IKONA STRZAŁKI (Wymiary zmniejszone o 50%)
+   IKONA STRZAŁKI
    ===================================================== */
 
 const gpsArrowIcon =
@@ -368,7 +366,7 @@ let firstPosition =
 
 
 /* =====================================================
-   USUWANIE MARKERÓW W PRZYPADKU BRAKU SYGNAŁU
+   USUWANIE MARKERÓW
    ===================================================== */
 
 function clearMarkers() {
@@ -508,7 +506,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           BŁĄD HTTP - BRAK SYGNAŁU
+           BŁĄD HTTP
            ============================================= */
 
         if (
@@ -558,6 +556,49 @@ async function updateGPS() {
             positions[0];
 
 
+        /* =============================================
+           SPRAWDZENIE WIEKU POZYCJI (Sygnał wygasł?)
+           ============================================= */
+
+        const lastFixTime =
+            new Date(
+                data.fixTime ||
+                data.serverTime
+            ).getTime();
+
+
+        const nowTime =
+            Date.now();
+
+
+        const ageInSeconds =
+            (
+                nowTime -
+                lastFixTime
+            ) /
+            1000;
+
+
+        if (
+            ageInSeconds >
+            MAX_POSITION_AGE_SECONDS
+        ) {
+
+            clearMarkers();
+
+            showStatus(
+                "URZĄDZENIE OFFLINE"
+            );
+
+            return;
+
+        }
+
+
+        /* =============================================
+           WSPÓŁRZĘDNE
+           ============================================= */
+
         const latitude =
             Number(
                 data.latitude
@@ -569,10 +610,6 @@ async function updateGPS() {
                 data.longitude
             );
 
-
-        /* =============================================
-           SPRAWDZENIE WSPÓŁRZĘDNYCH
-           ============================================= */
 
         if (
             !Number.isFinite(
