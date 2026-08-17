@@ -33,12 +33,11 @@
 <style>
 
 /* =====================================================
-   PEŁNY EKRAN
+   PEŁNY EKRAN I DOMYŚLNE UKRYCIE MAPY
    ===================================================== */
 
 html,
-body,
-#map {
+body {
 
     margin: 0;
     padding: 0;
@@ -53,9 +52,10 @@ body,
 }
 
 
-/* =====================================================
-   MAPA
-   ===================================================== */
+/*
+ * Mapa jest DOMYŚLNIE UKRYTA (display: none).
+ * Pokaże się tylko po odebraniu świeżej pozycji GPS.
+ */
 
 #map {
 
@@ -63,6 +63,11 @@ body,
 
     left: 0;
     top: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: none;
 
 }
 
@@ -126,7 +131,7 @@ body,
 
 
 /* =====================================================
-   STRZAŁKA KIERUNKU (Pomniejszona o 50%, Kolor Żółty)
+   STRZAŁKA KIERUNKU
    ===================================================== */
 
 .gps-arrow {
@@ -152,7 +157,7 @@ body,
 
 
 /* =====================================================
-   STATUS BŁĘDU
+   STATUS BŁĘDU / OFFLINE
    ===================================================== */
 
 #status {
@@ -201,15 +206,6 @@ body,
    KONFIGURACJA
    ===================================================== */
 
-
-/*
- * TOKEN JEST POBIERANY Z ADRESU STRONY.
- *
- * PRZYKŁAD:
- *
- * traccar-mini-map.html?token=TWÓJ_TOKEN
- */
-
 const params =
     new URLSearchParams(
         window.location.search
@@ -220,34 +216,28 @@ const TOKEN =
     params.get("token");
 
 
-/*
- * Serwer Traccar
- */
-
 const SERVER =
     "https://demo.traccar.org";
 
-
-/*
- * Częstotliwość pobierania GPS.
- *
- * 1000 ms = 1 sekunda (zmieniono z 2000 ms)
- */
 
 const REFRESH_TIME =
     1000;
 
 
-/*
- * Początkowe powiększenie mapy.
+/* 
+ * Czas w ms (15 sekund). Jeśli ostatnia pozycja jest starsza,
+ * urządzenie uznajemy za wyłączone i ukrywamy mapę.
  */
+const MAX_POSITION_AGE =
+    15000;
+
 
 const MAP_ZOOM =
     16;
 
 
 /* =====================================================
-   MAPA
+   MAPA LEAFLET
    ===================================================== */
 
 const map =
@@ -283,10 +273,6 @@ const map =
     );
 
 
-/* =====================================================
-   OPENSTREETMAP
-   ===================================================== */
-
 L.tileLayer(
 
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -305,7 +291,7 @@ L.tileLayer(
 
 
 /* =====================================================
-   IKONA CZERWONEGO PUNKTU
+   IKONY
    ===================================================== */
 
 const gpsPointIcon =
@@ -325,10 +311,6 @@ const gpsPointIcon =
 
     });
 
-
-/* =====================================================
-   IKONA STRZAŁKI (Wymiary pomniejszone o 50%)
-   ===================================================== */
 
 const gpsArrowIcon =
     L.divIcon({
@@ -364,24 +346,8 @@ let firstPosition =
     true;
 
 
-/*
- * UWAGA:
- *
- * Nie przechowujemy historii pozycji.
- *
- * Nie ma:
- * - route
- * - routeLine
- * - polyline
- * - historii punktów
- *
- * Na mapie istnieje wyłącznie aktualna
- * pozycja urządzenia.
- */
-
-
 /* =====================================================
-   STATUS
+   KONTROLA WIDOCZNOŚCI MAPY I STATUSU
    ===================================================== */
 
 function showStatus(
@@ -406,6 +372,58 @@ function showStatus(
 }
 
 
+function setMapVisible(
+    visible
+) {
+
+    const mapElement =
+        document.getElementById(
+            "map"
+        );
+
+
+    const isHidden =
+        mapElement.style.display === "none" ||
+        mapElement.style.display === "";
+
+
+    if (
+        visible
+    ) {
+
+        mapElement.style.display =
+            "block";
+
+
+        /* 
+         * Wymusza przeliczenie rozmiaru mapy po zmianie z display:none na display:block
+         */
+        if (
+            isHidden
+        ) {
+
+            setTimeout(
+                function () {
+
+                    map.invalidateSize();
+
+                },
+                50
+            );
+
+        }
+
+    }
+    else {
+
+        mapElement.style.display =
+            "none";
+
+    }
+
+}
+
+
 /* =====================================================
    POBIERANIE AKTUALNEGO GPS Z TRACCAR
    ===================================================== */
@@ -413,15 +431,6 @@ function showStatus(
 async function updateGPS() {
 
     try {
-
-        /*
-         * Nie korzystamy z /api/session.
-         *
-         * Nie korzystamy z cookie.
-         *
-         * Token jest przekazywany bezpośrednio
-         * jako Bearer token.
-         */
 
         const response =
             await fetch(
@@ -454,10 +463,6 @@ async function updateGPS() {
             );
 
 
-        /* =============================================
-           BŁĄD HTTP
-           ============================================= */
-
         if (
             !response.ok
         ) {
@@ -467,14 +472,12 @@ async function updateGPS() {
                 response.status
             );
 
+            setMapVisible(false);
+
             return;
 
         }
 
-
-        /* =============================================
-           JSON
-           ============================================= */
 
         const positions =
             await response.json();
@@ -492,18 +495,60 @@ async function updateGPS() {
                 "BRAK POZYCJI"
             );
 
+            setMapVisible(false);
+
             return;
 
         }
 
 
-        /*
-         * Używamy aktualnej pozycji pierwszego
-         * dostępnego urządzenia.
-         */
-
         const data =
             positions[0];
+
+
+        /* =============================================
+           WERYFIKACJA WIEKU SYGNAŁU (KLIENT WYŁĄCZONY?)
+           ============================================= */
+
+        const rawTime =
+            data.fixTime ||
+            data.serverTime ||
+            data.deviceTime;
+
+
+        const fixTimestamp =
+            new Date(rawTime).getTime();
+
+
+        const now =
+            Date.now();
+
+
+        const age =
+            now - fixTimestamp;
+
+
+        /* 
+         * Jeśli brak prawidłowego czasu lub sygnał jest starszy niż 15 sek.
+         * -> Ukrywamy mapę i wyświetlamy informację.
+         */
+        if (
+            isNaN(fixTimestamp)
+            ||
+            age > MAX_POSITION_AGE
+            ||
+            age < -MAX_POSITION_AGE
+        ) {
+
+            showStatus(
+                "TRACCAR CLIENT WYŁĄCZONY"
+            );
+
+            setMapVisible(false);
+
+            return;
+
+        }
 
 
         const latitude =
@@ -517,10 +562,6 @@ async function updateGPS() {
                 data.longitude
             );
 
-
-        /* =============================================
-           SPRAWDZENIE WSPÓŁRZĘDNYCH
-           ============================================= */
 
         if (
             !Number.isFinite(
@@ -536,9 +577,18 @@ async function updateGPS() {
                 "BŁĘDNA POZYCJA"
             );
 
+            setMapVisible(false);
+
             return;
 
         }
+
+
+        /* =============================================
+           SYGNAŁ AKTUALNY -> POKAZUJEMY MAPĘ
+           ============================================= */
+
+        setMapVisible(true);
 
 
         const position =
@@ -549,7 +599,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           AKTUALNY CZERWONY PUNKT
+           PUNKT GPS
            ============================================= */
 
         if (
@@ -575,13 +625,6 @@ async function updateGPS() {
 
         }
         else {
-
-            /*
-             * Przesuwamy istniejący punkt.
-             *
-             * Nie tworzymy nowego punktu
-             * i nie zapisujemy poprzedniej pozycji.
-             */
 
             gpsMarker.setLatLng(
                 position
@@ -637,15 +680,6 @@ async function updateGPS() {
             }
 
 
-            /*
-             * Obracamy strzałkę.
-             *
-             * 0   = północ
-             * 90  = wschód
-             * 180 = południe
-             * 270 = zachód
-             */
-
             const arrow =
                 document.getElementById(
                     "directionArrow"
@@ -667,7 +701,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           AUTOMATYCZNE CENTROWANIE
+           CENTROWANIE MAPY
            ============================================= */
 
         if (
@@ -696,13 +730,6 @@ async function updateGPS() {
         }
         else {
 
-            /*
-             * Mapa podąża za aktualną pozycją.
-             *
-             * Nie jest rysowana żadna linia
-             * pomiędzy poprzednią i aktualną pozycją.
-             */
-
             map.panTo(
 
                 position,
@@ -719,10 +746,6 @@ async function updateGPS() {
         }
 
 
-        /* =============================================
-           WSZYSTKO OK
-           ============================================= */
-
         showStatus("");
 
     }
@@ -731,8 +754,10 @@ async function updateGPS() {
     ) {
 
         showStatus(
-            "BŁĄD GPS"
+            "BŁĄD POŁĄCZENIA"
         );
+
+        setMapVisible(false);
 
     }
 
@@ -745,10 +770,6 @@ async function updateGPS() {
 
 function start() {
 
-    /*
-     * Sprawdzenie tokenu.
-     */
-
     if (
         !TOKEN
     ) {
@@ -757,36 +778,15 @@ function start() {
             "BRAK TOKENU"
         );
 
-        /* 
-         * Ukrycie mapy po 10 sekundach (10000 ms) 
-         */
-        setTimeout(
-            function () {
-
-                document.getElementById(
-                    "map"
-                ).style.display =
-                    "none";
-
-            },
-            10000
-        );
+        setMapVisible(false);
 
         return;
 
     }
 
 
-    /*
-     * Pierwszy odczyt natychmiast.
-     */
-
     updateGPS();
 
-
-    /*
-     * Kolejne odczyty co 1 sekundę.
-     */
 
     setInterval(
 
