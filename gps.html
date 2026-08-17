@@ -33,11 +33,12 @@
 <style>
 
 /* =====================================================
-   PEŁNY EKRAN I DOMYŚLNE UKRYCIE MAPY
+   PEŁNY EKRAN
    ===================================================== */
 
 html,
-body {
+body,
+#map {
 
     margin: 0;
     padding: 0;
@@ -52,17 +53,16 @@ body {
 }
 
 
+/* =====================================================
+   MAPA
+   ===================================================== */
+
 #map {
 
     position: absolute;
 
     left: 0;
     top: 0;
-
-    width: 100%;
-    height: 100%;
-
-    display: none;
 
 }
 
@@ -126,7 +126,7 @@ body {
 
 
 /* =====================================================
-   STRZAŁKA KIERUNKU
+   STRZAŁKA KIERUNKU (Pomniejszona o 50%, Kolor Żółty)
    ===================================================== */
 
 .gps-arrow {
@@ -141,44 +141,51 @@ body {
         4px solid transparent;
 
     border-bottom:
-        14px solid yellow;
+        14px solid #ffeb3b;
 
     filter:
         drop-shadow(
-            0 2px 2px rgba(0,0,0,0.75)
+            0 1px 2px rgba(0,0,0,0.75)
         );
 
 }
 
 
 /* =====================================================
-   STATUS BŁĘDU / OFFLINE
+   EKRAN BRAKU SYGNAŁU (Czarny ekran)
    ===================================================== */
 
-#status {
+#no-signal-overlay {
 
-    position: absolute;
+    position: fixed;
 
-    left: 5px;
-    top: 5px;
+    left: 0;
+    top: 0;
 
-    z-index: 10000;
+    width: 100vw;
+    height: 100vh;
 
-    padding:
-        4px 7px;
+    background: #000000;
 
-    border-radius: 5px;
+    color: #ffffff;
 
-    background:
-        rgba(0,0,0,0.78);
-
-    color: white;
-
-    font:
-        10px Arial,
-        sans-serif;
+    z-index: 99999;
 
     display: none;
+
+    justify-content: center;
+
+    align-items: center;
+
+    font-family: Arial, sans-serif;
+
+    font-size: 22px;
+
+    font-weight: bold;
+
+    letter-spacing: 1px;
+
+    text-align: center;
 
 }
 
@@ -192,7 +199,8 @@ body {
 
 <div id="map"></div>
 
-<div id="status"></div>
+<!-- Czarny ekran braku sygnału -->
+<div id="no-signal-overlay">BRAK SYGNAŁU GPS</div>
 
 
 <script>
@@ -215,25 +223,20 @@ const SERVER =
     "https://demo.traccar.org";
 
 
-const REFRESH_TIME =
-    1000;
-
-
-/* 
- * Maksymalny dopuszczalny wiek pozycji z serwera (90 sekund).
- * UWAGA: Zwiększono z 15s do 90s, aby zapobiec wygasaniu mapy
- * podczas standardowych odstępów nadawania Traccar Client.
+/*
+ * Częstotliwość pobierania GPS: 10 sekund (10000 ms)
  */
-const MAX_POSITION_AGE =
-    90000;
+
+const REFRESH_TIME =
+    10000;
 
 
-const MAP_ZOOM =
-    16;
+const MAP_RADIUS_METERS =
+    100;
 
 
 /* =====================================================
-   MAPA LEAFLET
+   MAPA
    ===================================================== */
 
 const map =
@@ -269,6 +272,10 @@ const map =
     );
 
 
+/* =====================================================
+   OPENSTREETMAP
+   ===================================================== */
+
 L.tileLayer(
 
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -287,7 +294,7 @@ L.tileLayer(
 
 
 /* =====================================================
-   IKONY
+   IKONA CZERWONEGO PUNKTU
    ===================================================== */
 
 const gpsPointIcon =
@@ -307,6 +314,10 @@ const gpsPointIcon =
 
     });
 
+
+/* =====================================================
+   IKONA STRZAŁKI (Wymiary zmniejszone o 50%)
+   ===================================================== */
 
 const gpsArrowIcon =
     L.divIcon({
@@ -343,76 +354,73 @@ let firstPosition =
 
 
 /* =====================================================
-   KONTROLA WIDOCZNOŚCI MAPY I STATUSU
+   OBSŁUGA EKRANU BRAKU SYGNAŁU
    ===================================================== */
 
-function showStatus(
-    text
+function setSignalState(
+    hasSignal
 ) {
 
-    const element =
+    const overlay =
         document.getElementById(
-            "status"
+            "no-signal-overlay"
         );
-
-
-    element.textContent =
-        text;
-
-
-    element.style.display =
-        text
-            ? "block"
-            : "none";
-
-}
-
-
-function setMapVisible(
-    visible
-) {
-
-    const mapElement =
-        document.getElementById(
-            "map"
-        );
-
-
-    const isHidden =
-        mapElement.style.display === "none" ||
-        mapElement.style.display === "";
 
 
     if (
-        visible
+        hasSignal
     ) {
 
-        mapElement.style.display =
-            "block";
-
-
-        if (
-            isHidden
-        ) {
-
-            setTimeout(
-                function () {
-
-                    map.invalidateSize();
-
-                },
-                50
-            );
-
-        }
+        overlay.style.display =
+            "none";
 
     }
     else {
 
-        mapElement.style.display =
-            "none";
+        overlay.style.display =
+            "flex";
 
     }
+
+}
+
+
+/* =====================================================
+   USTAWIENIE MAPY W PROMIENIU 100 METRÓW
+   ===================================================== */
+
+function centerMapAroundGPS(
+    position
+) {
+
+    const center =
+        L.latLng(
+            position[0],
+            position[1]
+        );
+
+
+    const north =
+        center.toBounds(
+            MAP_RADIUS_METERS * 2
+        );
+
+
+    map.fitBounds(
+        north,
+        {
+
+            padding:
+                [10, 10],
+
+            animate:
+                false,
+
+            maxZoom:
+                18
+
+        }
+    );
 
 }
 
@@ -460,12 +468,9 @@ async function updateGPS() {
             !response.ok
         ) {
 
-            showStatus(
-                "GPS HTTP " +
-                response.status
+            setSignalState(
+                false
             );
-
-            setMapVisible(false);
 
             return;
 
@@ -484,11 +489,9 @@ async function updateGPS() {
             positions.length === 0
         ) {
 
-            showStatus(
-                "BRAK POZYCJI"
+            setSignalState(
+                false
             );
-
-            setMapVisible(false);
 
             return;
 
@@ -497,49 +500,6 @@ async function updateGPS() {
 
         const data =
             positions[0];
-
-
-        /* =============================================
-           WERYFIKACJA ŚWIEŻOŚCI SYGNAŁU
-           ============================================= */
-
-        const rawTime =
-            data.serverTime ||
-            data.fixTime ||
-            data.deviceTime;
-
-
-        const positionTimestamp =
-            new Date(rawTime).getTime();
-
-
-        const now =
-            Date.now();
-
-
-        const age =
-            now - positionTimestamp;
-
-
-        /* 
-         * Jeśli sygnał z serwera jest starszy niż 90 sekund,
-         * uznajemy, że Traccar Client przestał nadawać.
-         */
-        if (
-            isNaN(positionTimestamp)
-            ||
-            age > MAX_POSITION_AGE
-        ) {
-
-            showStatus(
-                "TRACCAR CLIENT WYŁĄCZONY"
-            );
-
-            setMapVisible(false);
-
-            return;
-
-        }
 
 
         const latitude =
@@ -564,22 +524,13 @@ async function updateGPS() {
             )
         ) {
 
-            showStatus(
-                "BŁĘDNA POZYCJA"
+            setSignalState(
+                false
             );
-
-            setMapVisible(false);
 
             return;
 
         }
-
-
-        /* =============================================
-           ODBIÓR SYGNAŁU OK -> POKAZUJEMY MAPĘ
-           ============================================= */
-
-        setMapVisible(true);
 
 
         const position =
@@ -589,10 +540,13 @@ async function updateGPS() {
             ];
 
 
-        /* =============================================
-           PUNKT GPS
-           ============================================= */
+        /* Sygnał jest prawidłowy — ukrywamy czarny ekran */
+        setSignalState(
+            true
+        );
 
+
+        /* Marker pozycji */
         if (
             !gpsMarker
         ) {
@@ -624,10 +578,7 @@ async function updateGPS() {
         }
 
 
-        /* =============================================
-           KIERUNEK JAZDY
-           ============================================= */
-
+        /* Kierunek jazdy */
         const course =
             Number(
                 data.course
@@ -691,27 +642,12 @@ async function updateGPS() {
         }
 
 
-        /* =============================================
-           CENTROWANIE MAPY
-           ============================================= */
-
         if (
             firstPosition
         ) {
 
-            map.setView(
-
-                position,
-
-                MAP_ZOOM,
-
-                {
-
-                    animate:
-                        false
-
-                }
-
+            centerMapAroundGPS(
+                position
             );
 
 
@@ -736,19 +672,15 @@ async function updateGPS() {
 
         }
 
-
-        showStatus("");
-
     }
     catch (
         error
     ) {
 
-        showStatus(
-            "BŁĄD POŁĄCZENIA"
+        /* W przypadku jakiegokolwiek błędu połączenia wyświetlamy brak sygnału */
+        setSignalState(
+            false
         );
-
-        setMapVisible(false);
 
     }
 
@@ -765,11 +697,9 @@ function start() {
         !TOKEN
     ) {
 
-        showStatus(
-            "BRAK TOKENU"
+        setSignalState(
+            false
         );
-
-        setMapVisible(false);
 
         return;
 
@@ -789,10 +719,6 @@ function start() {
 
 }
 
-
-/* =====================================================
-   URUCHOMIENIE
-   ===================================================== */
 
 start();
 
