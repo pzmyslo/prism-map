@@ -52,11 +52,6 @@ body {
 }
 
 
-/*
- * Mapa jest DOMYŚLNIE UKRYTA (display: none).
- * Pokaże się tylko po odebraniu świeżej pozycji GPS.
- */
-
 #map {
 
     position: absolute;
@@ -225,11 +220,12 @@ const REFRESH_TIME =
 
 
 /* 
- * Czas w ms (15 sekund). Jeśli ostatnia pozycja jest starsza,
- * urządzenie uznajemy za wyłączone i ukrywamy mapę.
+ * Maksymalny dopuszczalny wiek pozycji z serwera (90 sekund).
+ * UWAGA: Zwiększono z 15s do 90s, aby zapobiec wygasaniu mapy
+ * podczas standardowych odstępów nadawania Traccar Client.
  */
 const MAX_POSITION_AGE =
-    15000;
+    90000;
 
 
 const MAP_ZOOM =
@@ -395,9 +391,6 @@ function setMapVisible(
             "block";
 
 
-        /* 
-         * Wymusza przeliczenie rozmiaru mapy po zmianie z display:none na display:block
-         */
         if (
             isHidden
         ) {
@@ -507,16 +500,16 @@ async function updateGPS() {
 
 
         /* =============================================
-           WERYFIKACJA WIEKU SYGNAŁU (KLIENT WYŁĄCZONY?)
+           WERYFIKACJA ŚWIEŻOŚCI SYGNAŁU
            ============================================= */
 
         const rawTime =
-            data.fixTime ||
             data.serverTime ||
+            data.fixTime ||
             data.deviceTime;
 
 
-        const fixTimestamp =
+        const positionTimestamp =
             new Date(rawTime).getTime();
 
 
@@ -525,23 +518,21 @@ async function updateGPS() {
 
 
         const age =
-            now - fixTimestamp;
+            now - positionTimestamp;
 
 
         /* 
-         * Jeśli brak prawidłowego czasu lub sygnał jest starszy niż 15 sek.
-         * -> Ukrywamy mapę i wyświetlamy informację.
+         * Jeśli sygnał z serwera jest starszy niż 90 sekund,
+         * uznajemy, że Traccar Client przestał nadawać.
          */
         if (
-            isNaN(fixTimestamp)
+            isNaN(positionTimestamp)
             ||
             age > MAX_POSITION_AGE
-            ||
-            age < -MAX_POSITION_AGE
         ) {
 
             showStatus(
-                "GPS WYŁĄCZONY"
+                "TRACCAR CLIENT WYŁĄCZONY"
             );
 
             setMapVisible(false);
@@ -585,7 +576,7 @@ async function updateGPS() {
 
 
         /* =============================================
-           SYGNAŁ AKTUALNY -> POKAZUJEMY MAPĘ
+           ODBIÓR SYGNAŁU OK -> POKAZUJEMY MAPĘ
            ============================================= */
 
         setMapVisible(true);
