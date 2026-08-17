@@ -757,6 +757,21 @@ function start() {
             "BRAK TOKENU"
         );
 
+        /* 
+         * Ukrycie mapy po 10 sekundach (10000 ms) 
+         */
+        setTimeout(
+            function () {
+
+                document.getElementById(
+                    "map"
+                ).style.display =
+                    "none";
+
+            },
+            10000
+        );
+
         return;
 
     }
