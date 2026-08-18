@@ -1,724 +1,297 @@
 <!DOCTYPE html>
-
 <html lang="pl">
-
 <head>
-
 <meta charset="UTF-8">
-
-<meta
-    name="viewport"
-    content="width=device-width,
-             initial-scale=1.0,
-             maximum-scale=1.0,
-             user-scalable=no"
->
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Traccar GPS Map</title>
-
 
 <!-- =====================================================
      LEAFLET
      ===================================================== -->
-
-<link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
->
-
-<script
-    src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js">
-</script>
-
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-
 /* =====================================================
    PEŁNY EKRAN
    ===================================================== */
-
-html,
-body,
-#map {
-
+html, body, #map {
     margin: 0;
     padding: 0;
-
     width: 100%;
     height: 100%;
-
     overflow: hidden;
-
     background: #111;
-
 }
-
 
 /* =====================================================
    MAPA
    ===================================================== */
-
 #map {
-
     position: absolute;
-
     left: 0;
     top: 0;
-
 }
-
 
 /* =====================================================
    USUWAMY ZOOM
    ===================================================== */
-
 .leaflet-control-zoom {
-
     display: none !important;
-
 }
-
 
 /* =====================================================
    ATRYBUCJA OPENSTREETMAP
    ===================================================== */
-
 .leaflet-control-attribution {
-
     font-size: 7px !important;
-
     line-height: 9px !important;
-
     padding: 1px 3px !important;
-
-    background:
-        rgba(255,255,255,0.60)
-        !important;
-
+    background: rgba(255,255,255,0.60) !important;
 }
 
-
 /* =====================================================
-   AKTUALNY PUNKT GPS
+   ZNACZNIK GPS (Koło czerwone + żółta strzałka)
    ===================================================== */
+.gps-wrapper {
+    width: 34px;
+    height: 34px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Płynna animacja obrotu znacznika */
+    transition: transform 0.3s ease-out;
+}
 
-.gps-point {
-
-    width: 18px;
-    height: 18px;
-
+/* Czerwone koło z białym tłem */
+.gps-circle {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
     box-sizing: border-box;
-
     border-radius: 50%;
-
-    background: #ff1744;
-
-    border: 3px solid #ffffff;
-
-    box-shadow:
-
-        0 0 0 4px
-        rgba(255,23,68,0.30),
-
-        0 2px 7px
-        rgba(0,0,0,0.75);
-
+    background: #ffffff;
+    border: 4px solid #ff0000; /* Czerwona ramka */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6); /* Cień pod kołem */
+    z-index: 1;
 }
 
-
-/* =====================================================
-   STRZAŁKA KIERUNKU (Pomniejszona o 50%, Kolor żółty)
-   ===================================================== */
-
-.gps-arrow {
-
+/* Żółta strzałka wewnątrz */
+.gps-arrow-shape {
     width: 0;
     height: 0;
-
-    border-left:
-        4px solid transparent;
-
-    border-right:
-        4px solid transparent;
-
-    border-bottom:
-        14px solid #ffeb3b;
-
-    filter:
-        drop-shadow(
-            0 1px 2px rgba(0,0,0,0.75)
-        );
-
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-bottom: 16px solid #ffeb3b; /* Żółty kolor strzałki */
+    z-index: 2;
+    /* Delikatne przesunięcie do góry, aby strzałka wydawała się wyśrodkowana optycznie */
+    margin-bottom: 4px;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
 }
-
 
 /* =====================================================
    STATUS BŁĘDU (Pojawia się tylko przy błędzie HTTP)
    ===================================================== */
-
 #status {
-
     position: absolute;
-
     left: 5px;
     top: 5px;
-
     z-index: 10000;
-
-    padding:
-        4px 7px;
-
+    padding: 4px 7px;
     border-radius: 5px;
-
-    background:
-        rgba(0,0,0,0.78);
-
+    background: rgba(0,0,0,0.78);
     color: white;
-
-    font:
-        10px Arial,
-        sans-serif;
-
+    font: 10px Arial, sans-serif;
     display: none;
-
 }
-
 </style>
 
 </head>
-
-
 <body>
 
-
 <div id="map"></div>
-
 <div id="status"></div>
 
-
 <script>
-
 /* =====================================================
    KONFIGURACJA
    ===================================================== */
+const params = new URLSearchParams(window.location.search);
+const TOKEN = params.get("token");
 
-const params =
-    new URLSearchParams(
-        window.location.search
-    );
+/* Serwer Traccar */
+const SERVER = "https://demo.traccar.org";
 
+/* Częstotliwość pobierania pozycji (2 sekundy) */
+const REFRESH_TIME = 2000;
 
-const TOKEN =
-    params.get("token");
-
-
-/*
- * Serwer Traccar
- */
-
-const SERVER =
-    "https://demo.traccar.org";
-
-
-/*
- * Częstotliwość pobierania pozycji (2 sekundy)
- */
-
-const REFRESH_TIME =
-    2000;
-
-
-/*
- * Promień obszaru mapy wokół obiektu (100 metrów)
- */
-
-const MAP_RADIUS_METERS =
-    100;
+/* Promień obszaru mapy wokół obiektu (100 metrów) */
+const MAP_RADIUS_METERS = 100;
 
 
 /* =====================================================
    MAPA LEAFLET
    ===================================================== */
-
-const map =
-    L.map(
-        "map",
-        {
-
-            zoomControl:
-                false,
-
-            attributionControl:
-                true,
-
-            dragging:
-                false,
-
-            scrollWheelZoom:
-                false,
-
-            doubleClickZoom:
-                false,
-
-            touchZoom:
-                false,
-
-            boxZoom:
-                false,
-
-            keyboard:
-                false
-
-        }
-    );
-
+const map = L.map("map", {
+    zoomControl: false,
+    attributionControl: true,
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    touchZoom: false,
+    boxZoom: false,
+    keyboard: false
+});
 
 /* =====================================================
    WARSTWA MAPY OPENSTREETMAP
    ===================================================== */
-
 L.tileLayer(
-
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-
-    {
-
-        maxZoom:
-            19,
-
-        attribution:
-            "&copy; OpenStreetMap contributors"
-
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
     }
-
 ).addTo(map);
 
-
 /* =====================================================
-   IKONA CZERWONEGO PUNKTU
+   KOMPLETNA IKONA ZNACZNIKA
    ===================================================== */
-
-const gpsPointIcon =
-    L.divIcon({
-
-        className:
-            "",
-
-        html:
-            '<div class="gps-point"></div>',
-
-        iconSize:
-            [18, 18],
-
-        iconAnchor:
-            [9, 9]
-
-    });
-
-
-/* =====================================================
-   IKONA ŻÓŁTEJ STRZAŁKI (50% WIELKOŚCI)
-   ===================================================== */
-
-const gpsArrowIcon =
-    L.divIcon({
-
-        className:
-            "",
-
-        html:
-            '<div id="directionArrow" class="gps-arrow"></div>',
-
-        iconSize:
-            [8, 14],
-
-        iconAnchor:
-            [4, 7]
-
-    });
-
+const gpsIcon = L.divIcon({
+    className: "",
+    html: '<div id="directionMarker" class="gps-wrapper">' +
+          '<div class="gps-circle"></div>' +
+          '<div class="gps-arrow-shape"></div>' +
+          '</div>',
+    iconSize: [34, 34], /* Zwiększony rozmiar ikony */
+    iconAnchor: [17, 17] /* Środek obrotu (połowa rozmiaru) */
+});
 
 /* =====================================================
    ZMIENNE
    ===================================================== */
-
-let gpsMarker =
-    null;
-
-
-let directionMarker =
-    null;
-
-
-let firstPosition =
-    true;
-
+let gpsMarker = null;
+let firstPosition = true;
 
 /* =====================================================
    STATUS
    ===================================================== */
-
-function showStatus(
-    text
-) {
-
-    const element =
-        document.getElementById(
-            "status"
-        );
-
-
-    element.textContent =
-        text;
-
-
-    element.style.display =
-        text
-            ? "block"
-            : "none";
-
+function showStatus(text) {
+    const element = document.getElementById("status");
+    element.textContent = text;
+    element.style.display = text ? "block" : "none";
 }
-
 
 /* =====================================================
    CENTROWANIE MAPY W PROMIENIU 100M
    ===================================================== */
+function centerMapAroundGPS(position) {
+    const center = L.latLng(position[0], position[1]);
+    const bounds = center.toBounds(MAP_RADIUS_METERS * 2);
 
-function centerMapAroundGPS(
-    position
-) {
-
-    const center =
-        L.latLng(
-            position[0],
-            position[1]
-        );
-
-
-    const bounds =
-        center.toBounds(
-            MAP_RADIUS_METERS * 2
-        );
-
-
-    map.fitBounds(
-        bounds,
-        {
-
-            padding:
-                [10, 10],
-
-            animate:
-                false,
-
-            maxZoom:
-                18
-
-        }
-    );
-
+    map.fitBounds(bounds, {
+        padding: [10, 10],
+        animate: false,
+        maxZoom: 18
+    });
 }
-
 
 /* =====================================================
    AKTUALIZACJA POZYCJI GPS
    ===================================================== */
-
 async function updateGPS() {
-
     try {
+        const response = await fetch(SERVER + "/api/positions", {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+                "Accept": "application/json",
+                "Authorization": "Bearer " + TOKEN
+            }
+        });
 
-        const response =
-            await fetch(
-
-                SERVER + "/api/positions",
-
-                {
-
-                    method:
-                        "GET",
-
-                    cache:
-                        "no-store",
-
-                    headers:
-                        {
-
-                            "Accept":
-                                "application/json",
-
-                            "Authorization":
-                                "Bearer " +
-                                TOKEN
-
-                        }
-
-                }
-
-            );
-
-
-        if (
-            !response.ok
-        ) {
-
-            showStatus(
-                "BŁĄD HTTP " + response.status
-            );
-
+        if (!response.ok) {
+            showStatus("BŁĄD HTTP " + response.status);
             return;
-
         }
 
+        const positions = await response.json();
 
-        const positions =
-            await response.json();
-
-
-        if (
-            !Array.isArray(positions) ||
-            positions.length === 0
-        ) {
-
-            showStatus(
-                "BRAK POZYCJI"
-            );
-
+        if (!Array.isArray(positions) || positions.length === 0) {
+            showStatus("BRAK POZYCJI");
             return;
-
         }
 
+        const data = positions[0];
+        const latitude = Number(data.latitude);
+        const longitude = Number(data.longitude);
 
-        const data =
-            positions[0];
-
-
-        const latitude =
-            Number(data.latitude);
-
-
-        const longitude =
-            Number(data.longitude);
-
-
-        if (
-            !Number.isFinite(latitude) ||
-            !Number.isFinite(longitude)
-        ) {
-
-            showStatus(
-                "BŁĘDNE WSPÓŁRZĘDNE"
-            );
-
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            showStatus("BŁĘDNE WSPÓŁRZĘDNE");
             return;
-
         }
 
-
-        const position =
-            [latitude, longitude];
-
+        const position = [latitude, longitude];
 
         /* =============================================
-           1. CZERWONY PUNKT GPS
+           1. ZNACZNIK GPS NA MAPIE
            ============================================= */
-
-        if (
-            !gpsMarker
-        ) {
-
-            gpsMarker =
-                L.marker(
-
-                    position,
-
-                    {
-
-                        icon:
-                            gpsPointIcon,
-
-                        interactive:
-                            false
-
-                    }
-
-                ).addTo(map);
-
+        if (!gpsMarker) {
+            gpsMarker = L.marker(position, {
+                icon: gpsIcon,
+                interactive: false
+            }).addTo(map);
+        } else {
+            gpsMarker.setLatLng(position);
         }
-        else {
-
-            gpsMarker.setLatLng(
-                position
-            );
-
-        }
-
 
         /* =============================================
-           2. ŻÓŁTA STRZAŁKA KIERUNKU JAZDY
+           2. OBRÓT ZNACZNIKA (KIERUNEK JAZDY)
            ============================================= */
-
-        const course =
-            Number(data.course);
-
-
-        if (
-            Number.isFinite(course)
-        ) {
-
-            if (
-                !directionMarker
-            ) {
-
-                directionMarker =
-                    L.marker(
-
-                        position,
-
-                        {
-
-                            icon:
-                                gpsArrowIcon,
-
-                            interactive:
-                                false
-
-                        }
-
-                    ).addTo(map);
-
+        const course = Number(data.course);
+        if (Number.isFinite(course)) {
+            const markerDiv = document.getElementById("directionMarker");
+            if (markerDiv) {
+                // Obracamy cały kontener (koło razem ze strzałką)
+                markerDiv.style.transform = "rotate(" + course + "deg)";
             }
-            else {
-
-                directionMarker.setLatLng(
-                    position
-                );
-
-            }
-
-
-            const arrow =
-                document.getElementById(
-                    "directionArrow"
-                );
-
-
-            if (
-                arrow
-            ) {
-
-                arrow.style.transform =
-                    "rotate(" + course + "deg)";
-
-            }
-
         }
-        else if (
-            directionMarker
-        ) {
-
-            map.removeLayer(
-                directionMarker
-            );
-
-            directionMarker =
-                null;
-
-        }
-
 
         /* =============================================
            3. POZYCJONOWANIE MAPY
            ============================================= */
-
-        if (
-            firstPosition
-        ) {
-
-            centerMapAroundGPS(
-                position
-            );
-
-            firstPosition =
-                false;
-
+        if (firstPosition) {
+            centerMapAroundGPS(position);
+            firstPosition = false;
+        } else {
+            map.panTo(position, { animate: false });
         }
-        else {
-
-            map.panTo(
-
-                position,
-
-                {
-
-                    animate:
-                        false
-
-                }
-
-            );
-
-        }
-
 
         /* Ukrycie komunikatów błędów po poprawnym pobraniu danych */
         showStatus("");
 
+    } catch (error) {
+        showStatus("BŁĄD POŁĄCZENIA");
     }
-    catch (
-        error
-    ) {
-
-        showStatus(
-            "BŁĄD POŁĄCZENIA"
-        );
-
-    }
-
 }
-
 
 /* =====================================================
    START
    ===================================================== */
-
 function start() {
-
-    if (
-        !TOKEN
-    ) {
-
-        showStatus(
-            "BRAK TOKENU"
-        );
-
+    if (!TOKEN) {
+        showStatus("BRAK TOKENU");
         return;
-
     }
 
-
     updateGPS();
-
-
-    setInterval(
-
-        updateGPS,
-
-        REFRESH_TIME
-
-    );
-
+    setInterval(updateGPS, REFRESH_TIME);
 }
-
 
 /* =====================================================
    URUCHOMIENIE
    ===================================================== */
-
 start();
 
 </script>
-
 </body>
-
 </html>
