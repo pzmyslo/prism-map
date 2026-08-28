@@ -517,7 +517,16 @@ async function updateGPS() {
 
             showStatus(
                 "GPS HTTP " +
-                response.status
+                response.status +
+                " (" +
+                response.statusText +
+                ")"
+            );
+
+            console.error(
+                "Traccar HTTP error:",
+                response.status,
+                response.statusText
             );
 
             return;
@@ -771,8 +780,20 @@ async function updateGPS() {
         error
     ) {
 
+        console.error("BŁĄD GPS:", error);
+
+        /*
+         * Nie ukrywamy rzeczywistego błędu.
+         * Dzięki temu wiadomo, czy problem dotyczy
+         * sieci, CORS, połączenia z Traccar itp.
+         */
+        const message =
+            error && error.message
+                ? error.message
+                : String(error);
+
         showStatus(
-            "BŁĄD GPS"
+            "BŁĄD GPS: " + message
         );
 
     }
