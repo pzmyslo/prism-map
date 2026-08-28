@@ -135,22 +135,23 @@ function centerMapAroundGPS(position) {
 
 async function updateGPS() {
     try {
-        // Przekierowanie zapytania przez bramkę CORS Proxy
-        const targetUrl = SERVER + "/api/positions";
-        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
+        if (!TOKEN) {
+            showStatus("BRAK TOKENU W URL");
+            return;
+        }
+
+        // Token przekazywany bezpośrednio w zapytaniu URL do Traccara
+        const targetUrl = SERVER + "/api/positions?token=" + encodeURIComponent(TOKEN);
+        const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(targetUrl);
 
         const response = await fetch(proxyUrl, {
             method: "GET",
-            cache: "no-store",
-            headers: {
-                "Accept": "application/json",
-                "Authorization": "Bearer " + TOKEN
-            }
+            cache: "no-store"
         });
 
         if (!response.ok) {
-            showStatus("GPS HTTP " + response.status + " (" + response.statusText + ")");
-            console.error("Traccar HTTP error:", response.status, response.statusText);
+            showStatus("GPS HTTP " + response.status);
+            console.error("Traccar HTTP error:", response.status);
             return;
         }
 
@@ -217,7 +218,7 @@ async function updateGPS() {
 
 function start() {
     if (!TOKEN) {
-        showStatus("BRAK TOKENU");
+        showStatus("BRAK TOKENU W URL");
         return;
     }
 
