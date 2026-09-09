@@ -63,7 +63,6 @@ html, body, #map {
     transition: transform 0.3s ease-out;
 }
 
-/* Czerwone koło z białym tłem */
 .gps-circle {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -75,7 +74,6 @@ html, body, #map {
     z-index: 1;
 }
 
-/* Czerwona strzałka wewnątrz */
 .gps-arrow-shape {
     width: 0;
     height: 0;
@@ -108,7 +106,7 @@ html, body, #map {
 <body>
 
 <div id="map"></div>
-<div id="status">Inicjalizacja...</div>
+<div id="status">Łączenie z Traccar...</div>
 
 <script>
 /* =====================================================
@@ -157,7 +155,6 @@ const gpsIcon = L.divIcon({
 });
 
 let gpsMarker = null;
-let targetDeviceId = null;
 
 function showStatus(text) {
     const element = document.getElementById("status");
@@ -166,70 +163,33 @@ function showStatus(text) {
 }
 
 /* =====================================================
-   1. INICJALIZACJA SESJI W TRACCAR I POBRANIE ID URZĄDZENIA
-   ===================================================== */
-async function initTraccarSession() {
-    try {
-        // Logowanie za pomocą tokena z adresu URL
-        const sessionResp = await fetch(`${SERVER}/api/session?token=${encodeURIComponent(TOKEN)}`, {
-            method: "GET",
-            headers: { "Accept": "application/json" }
-        });
-
-        if (!sessionResp.ok) {
-            showStatus("BŁĄD AUTORYZACJI (NIEPRAWIDŁOWY TOKEN)");
-            return false;
-        }
-
-        // Pobranie listy urządzeń przypisanych do Twojego konta
-        const devicesResp = await fetch(`${SERVER}/api/devices`, {
-            method: "GET",
-            headers: { "Accept": "application/json" }
-        });
-
-        if (!devicesResp.ok) {
-            showStatus("BŁĄD POBIERANIA URZĄDZEŃ");
-            return false;
-        }
-
-        const devices = await devicesResp.json();
-        if (!Array.isArray(devices) || devices.length === 0) {
-            showStatus("BRAK PRZYPISANYCH URZĄDZEŃ DO TOKENA");
-            return false;
-        }
-
-        // Bierzemy pierwsze urządzenie z konta
-        targetDeviceId = devices[0].id;
-        return true;
-
-    } catch (e) {
-        showStatus("BŁĄD POŁĄCZENIA Z SERWEREM TRACCAR");
-        return false;
-    }
-}
-
-/* =====================================================
-   2. AKTUALIZACJA POZYCJI GPS
+   POBIERANIE POZYCJI GPS Z TRACCAR
    ===================================================== */
 async function updateGPS() {
-    if (!targetDeviceId) return;
-
     try {
-        const response = await fetch(`${SERVER}/api/positions?deviceId=${targetDeviceId}`, {
+        // Zapytanie z autoryzacją Bearer TOKEN bez konieczności tworzenia sesji
+        const response = await fetch(`${SERVER}/api/positions`, {
             method: "GET",
             cache: "no-store",
-            headers: { "Accept": "application/json" }
+            headers: {
+                "Accept": "application/json",
+                "Authorization": "Bearer " + TOKEN
+            }
         });
 
         if (!response.ok) {
-            showStatus("BŁĄD POBIERANIA POZYCJI HTTP " + response.status);
+            if (response.status === 401) {
+                showStatus("BŁĄD AUTORYZACJI (TOKEN WYGASAŁ LUB JEST NIEPRAWIDŁOWY)");
+            } else {
+                showStatus("BŁĄD HTTP " + response.status);
+            }
             return;
         }
 
         const positions = await response.json();
 
         if (!Array.isArray(positions) || positions.length === 0) {
-            showStatus("OCZEKIWANIE NA POZYCJĘ...");
+            showStatus("BRAK DOSTĘPNYCH POZYCJI GPS");
             return;
         }
 
@@ -244,10 +204,10 @@ async function updateGPS() {
 
         const position = [latitude, longitude];
 
-        // Ścisłe scentralizowanie mapy na pozycji GPS
+        // Wyśrodkowanie mapy ściśle na pozycji
         map.setView(position, DEFAULT_ZOOM, { animate: false });
 
-        // Dodanie lub aktualizacja znacznika na mapie
+        // Aktualizacja lub utwożenie znacznika
         if (!gpsMarker) {
             gpsMarker = L.marker(position, {
                 icon: gpsIcon,
@@ -257,7 +217,7 @@ async function updateGPS() {
             gpsMarker.setLatLng(position);
         }
 
-        // Obrót strzałki na podstawie pola 'course'
+        // Obrót strzałki wg kursu (course)
         const course = Number(data.course);
         if (Number.isFinite(course)) {
             const markerDiv = document.getElementById("directionMarker");
@@ -266,28 +226,24 @@ async function updateGPS() {
             }
         }
 
-        showStatus(""); // Ukryj status po poprawnym odczycie
+        showStatus(""); // Ukryj status po sukcesie
 
     } catch (error) {
-        showStatus("BŁĄD SIECIOWY");
+        showStatus("BŁĄD CORS / POŁĄCZENIA Z SERWEREM");
     }
 }
 
 /* =====================================================
    START
    ===================================================== */
-async function start() {
+function start() {
     if (!TOKEN) {
         showStatus("BRAK TOKENU W ADRESIE URL");
         return;
     }
 
-    showStatus("Łączenie z Traccar...");
-    const initialized = await initTraccarSession();
-    if (initialized) {
-        await updateGPS();
-        setInterval(updateGPS, REFRESH_TIME);
-    }
+    updateGPS();
+    setInterval(updateGPS, REFRESH_TIME);
 }
 
 start();
