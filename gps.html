@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Traccar GPS Map</title>
+<title>Moja Pozycja GPS</title>
 
 <!-- =====================================================
      LEAFLET
@@ -51,7 +51,7 @@ html, body, #map {
 }
 
 /* =====================================================
-   ZNACZNIK GPS (Koło czerwone + żółta strzałka)
+   ZNACZNIK GPS (Koło czerwone + czerwona strzałka)
    ===================================================== */
 .gps-wrapper {
     width: 34px;
@@ -76,33 +76,32 @@ html, body, #map {
     z-index: 1;
 }
 
-/* Żółta strzałka wewnątrz */
+/* Czerwona strzałka wewnątrz */
 .gps-arrow-shape {
     width: 0;
     height: 0;
     border-left: 7px solid transparent;
     border-right: 7px solid transparent;
-    border-bottom: 16px solid #ff0000; /* Żółty kolor strzałki */
+    border-bottom: 16px solid #ff0000;
     z-index: 2;
-    /* Delikatne przesunięcie do góry, aby strzałka wydawała się wyśrodkowana optycznie */
     margin-bottom: 4px;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
 }
 
 /* =====================================================
-   STATUS BŁĘDU (Pojawia się tylko przy błędzie HTTP)
+   STATUS (Pojawia się przy braku zgody/błędzie)
    ===================================================== */
 #status {
     position: absolute;
     left: 5px;
     top: 5px;
     z-index: 10000;
-    padding: 4px 7px;
+    padding: 6px 10px;
     border-radius: 5px;
-    background: rgba(0,0,0,0.78);
+    background: rgba(0,0,0,0.85);
     color: white;
-    font: 10px Arial, sans-serif;
-    display: none;
+    font: 12px Arial, sans-serif;
+    display: block;
 }
 </style>
 
@@ -110,25 +109,9 @@ html, body, #map {
 <body>
 
 <div id="map"></div>
-<div id="status"></div>
+<div id="status">Oczekiwanie na uprawnienia GPS...</div>
 
 <script>
-/* =====================================================
-   KONFIGURACJA
-   ===================================================== */
-const params = new URLSearchParams(window.location.search);
-const TOKEN = params.get("token");
-
-/* Serwer Traccar */
-const SERVER = "https://demo4.traccar.org";
-
-/* Częstotliwość pobierania pozycji (2 sekundy) */
-const REFRESH_TIME = 2000;
-
-/* Promień obszaru mapy wokół obiektu (100 metrów) */
-const MAP_RADIUS_METERS = 100;
-
-
 /* =====================================================
    MAPA LEAFLET
    ===================================================== */
@@ -141,7 +124,7 @@ const map = L.map("map", {
     touchZoom: false,
     boxZoom: false,
     keyboard: false
-});
+}).setView([0, 0], 18); // Domyślny poziom powiększenia
 
 /* =====================================================
    WARSTWA MAPY OPENSTREETMAP
@@ -162,15 +145,14 @@ const gpsIcon = L.divIcon({
           '<div class="gps-circle"></div>' +
           '<div class="gps-arrow-shape"></div>' +
           '</div>',
-    iconSize: [34, 34], /* Zwiększony rozmiar ikony */
-    iconAnchor: [17, 17] /* Środek obrotu (połowa rozmiaru) */
+    iconSize: [34, 34],
+    iconAnchor: [17, 17] /* Środek znacznika dokłanie w centrum mapy */
 });
 
 /* =====================================================
    ZMIENNE
    ===================================================== */
 let gpsMarker = null;
-let firstPosition = true;
 
 /* =====================================================
    STATUS
@@ -182,115 +164,75 @@ function showStatus(text) {
 }
 
 /* =====================================================
-   CENTROWANIE MAPY W PROMIENIU 100M
+   OBSŁUGA POBIERANIA POZYCJI GPS Z URZĄDZENIA
    ===================================================== */
-function centerMapAroundGPS(position) {
-    const center = L.latLng(position[0], position[1]);
-    const bounds = center.toBounds(MAP_RADIUS_METERS * 2);
+function onPositionSuccess(position) {
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+    const heading = position.coords.heading; // Kierunek w stopniach (o ile dostępny)
 
-    map.fitBounds(bounds, {
-        padding: [10, 10],
-        animate: false,
-        maxZoom: 18
-    });
+    const userLatLng = [latitude, longitude];
+
+    // 1. Zawsze ustawiaj środek mapy dokładnie na pobraną pozycję
+    map.setView(userLatLng, 18, { animate: false });
+
+    // 2. Dodaj lub przesuń znacznik (zawsze w centrum)
+    if (!gpsMarker) {
+        gpsMarker = L.marker(userLatLng, {
+            icon: gpsIcon,
+            interactive: false
+        }).addTo(map);
+    } else {
+        gpsMarker.setLatLng(userLatLng);
+    }
+
+    // 3. Obróć strzałkę, jeśli urządzenie udostępnia kierunek ruchu (heading)
+    if (heading !== null && !isNaN(heading)) {
+        const markerDiv = document.getElementById("directionMarker");
+        if (markerDiv) {
+            markerDiv.style.transform = "rotate(" + heading + "deg)";
+        }
+    }
+
+    // Ukryj status po pomyślnym pobraniu pozycji
+    showStatus("");
+}
+
+function onPositionError(error) {
+    switch(error.code) {
+        case error.PERMISSION_DENIED:
+            showStatus("Brak zgody na dostęp do GPS.");
+            break;
+        case error.POSITION_UNAVAILABLE:
+            showStatus("Sygnał GPS jest niedostępny.");
+            break;
+        case error.TIMEOUT:
+            showStatus("Przekroczono czas oczekiwania na lokalizację.");
+            break;
+        default:
+            showStatus("Wystąpił nieznany błąd GPS.");
+            break;
+    }
 }
 
 /* =====================================================
-   AKTUALIZACJA POZYCJI GPS
+   START ŚLEDZENIA
    ===================================================== */
-async function updateGPS() {
-    try {
-        const response = await fetch(SERVER + "/api/positions", {
-            method: "GET",
-            cache: "no-store",
-            headers: {
-                "Accept": "application/json",
-                "Authorization": "Bearer " + TOKEN
-            }
+function startTracking() {
+    if ("geolocation" in navigator) {
+        // watchPosition automatycznie aktualizuje pozycję w czasie rzeczywistym
+        navigator.geolocation.watchPosition(onPositionSuccess, onPositionError, {
+            enableHighAccuracy: true, // Zapewnia najwyższą dokładność (GPS)
+            maximumAge: 0,            // Brak pamięci podręcznej (zawsze świeże dane)
+            timeout: 10000            // Czas oczekiwania na odpowiedź
         });
-
-        if (!response.ok) {
-            showStatus("BŁĄD HTTP " + response.status);
-            return;
-        }
-
-        const positions = await response.json();
-
-        if (!Array.isArray(positions) || positions.length === 0) {
-            showStatus("BRAK POZYCJI");
-            return;
-        }
-
-        const data = positions[0];
-        const latitude = Number(data.latitude);
-        const longitude = Number(data.longitude);
-
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-            showStatus("BŁĘDNE WSPÓŁRZĘDNE");
-            return;
-        }
-
-        const position = [latitude, longitude];
-
-        /* =============================================
-           1. ZNACZNIK GPS NA MAPIE
-           ============================================= */
-        if (!gpsMarker) {
-            gpsMarker = L.marker(position, {
-                icon: gpsIcon,
-                interactive: false
-            }).addTo(map);
-        } else {
-            gpsMarker.setLatLng(position);
-        }
-
-        /* =============================================
-           2. OBRÓT ZNACZNIKA (KIERUNEK JAZDY)
-           ============================================= */
-        const course = Number(data.course);
-        if (Number.isFinite(course)) {
-            const markerDiv = document.getElementById("directionMarker");
-            if (markerDiv) {
-                // Obracamy cały kontener (koło razem ze strzałką)
-                markerDiv.style.transform = "rotate(" + course + "deg)";
-            }
-        }
-
-        /* =============================================
-           3. POZYCJONOWANIE MAPY
-           ============================================= */
-        if (firstPosition) {
-            centerMapAroundGPS(position);
-            firstPosition = false;
-        } else {
-            map.panTo(position, { animate: false });
-        }
-
-        /* Ukrycie komunikatów błędów po poprawnym pobraniu danych */
-        showStatus("");
-
-    } catch (error) {
-        showStatus("BŁĄD POŁĄCZENIA");
+    } else {
+        showStatus("Twoja przeglądarka nie obsługuje geolokalizacji.");
     }
 }
 
-/* =====================================================
-   START
-   ===================================================== */
-function start() {
-    if (!TOKEN) {
-        showStatus("BRAK TOKENU");
-        return;
-    }
-
-    updateGPS();
-    setInterval(updateGPS, REFRESH_TIME);
-}
-
-/* =====================================================
-   URUCHOMIENIE
-   ===================================================== */
-start();
+// Uruchomienie śledzenia
+startTracking();
 
 </script>
 </body>
