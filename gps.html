@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pozycja GPS</title>
     
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <style>
@@ -12,9 +13,9 @@
         html, body, #map { width: 100%; height: 100%; overflow: hidden; background: #e5e5e5; }
         #status-info {
             position: absolute; top: 12px; right: 12px; z-index: 1000;
-            background: rgba(255, 255, 255, 0.92); padding: 8px 14px; border-radius: 20px;
-            font-family: sans-serif; font-size: 13px; color: #333;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15); pointer-events: none;
+            background: rgba(255, 255, 255, 0.95); padding: 8px 14px; border-radius: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px; color: #333; box-shadow: 0 2px 8px rgba(0,0,0,0.15); pointer-events: none;
         }
         .error { color: #d9534f !important; font-weight: bold; }
     </style>
@@ -24,9 +25,11 @@
     <div id="status-info">Łączenie...</div>
     <div id="map"></div>
 
+    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
+        const REFRESH_INTERVAL = 10000;
         const urlParams = new URLSearchParams(window.location.search);
         const TOKEN = urlParams.get('token');
 
@@ -47,33 +50,39 @@
             }
 
             try {
-                // Wywołanie API Traccar przez bezpośredni przekaźnik bez wyzwalania preflight CORS
+                // Zapytanie JSONP omalujace ograniczenia CORS
                 const targetUrl = `https://demo.traccar.org/api/positions?token=${encodeURIComponent(TOKEN)}`;
-                const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+                const jsonpUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
 
+                const response = await fetch(jsonpUrl);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-                const positions = await response.json();
+                const data = await response.json();
+                
+                // Odczyt zawartości zwróconej przez API Traccar
+                if (!data.contents) throw new Error("EMPTY_RESPONSE");
+                const positions = JSON.parse(data.contents);
 
                 if (Array.isArray(positions) && positions.length > 0) {
                     const latest = positions[positions.length - 1];
                     const latlng = [latest.latitude, latest.longitude];
+                    const accuracy = latest.accuracy || 0;
 
                     if (!positionMarker) {
                         positionMarker = L.circleMarker(latlng, {
                             color: '#ffffff', fillColor: '#0078ff', fillOpacity: 1, weight: 3, radius: 10
                         }).addTo(map);
 
-                        if (latest.accuracy > 0) {
+                        if (accuracy > 0) {
                             accuracyCircle = L.circle(latlng, {
-                                radius: latest.accuracy, color: '#0078ff', fillColor: '#0078ff', fillOpacity: 0.15, weight: 1
+                                radius: accuracy, color: '#0078ff', fillColor: '#0078ff', fillOpacity: 0.15, weight: 1
                             }).addTo(map);
                         }
                     } else {
                         positionMarker.setLatLng(latlng);
                         if (accuracyCircle) {
                             accuracyCircle.setLatLng(latlng);
-                            if (latest.accuracy > 0) accuracyCircle.setRadius(latest.accuracy);
+                            if (accuracy > 0) accuracyCircle.setRadius(accuracy);
                         }
                     }
 
@@ -86,18 +95,18 @@
                     const timeStr = new Date(latest.fixTime || latest.deviceTime).toLocaleTimeString('pl-PL');
                     statusEl.innerText = `Ostatnia pozycja: ${timeStr}`;
                 } else {
-                    statusEl.innerText = "Brak danych pozycji";
+                    statusEl.innerText = "Brak danych pozycji dla tego tokena";
                 }
 
             } catch (error) {
-                console.error(error);
+                console.error("Błąd pobierania:", error);
                 statusEl.classList.add('error');
                 statusEl.innerText = "Błąd pobierania danych z serwera";
             }
         }
 
         updatePosition();
-        setInterval(updatePosition, 10000);
+        setInterval(updatePosition, REFRESH_INTERVAL);
     </script>
 </body>
 </html>
