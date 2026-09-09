@@ -4,90 +4,144 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pozycja GPS</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        html, body {
+        html, body, #map {
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #f0f0f0;
+            background-color: #e5e5e5;
         }
-        #container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-        }
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-        #error-msg {
-            display: none;
+        #status-info {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-family: sans-serif;
-            color: #d9534f;
-            font-weight: bold;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            top: 12px;
+            right: 12px;
             z-index: 1000;
+            background: rgba(255, 255, 255, 0.92);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 13px;
+            color: #333;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            pointer-events: none;
+        }
+        .error {
+            color: #d9534f !important;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
 
-    <div id="container">
-        <div id="error-msg">Brak tokena w adresie URL (?token=...)</div>
-        <iframe id="traccar-frame" src="" allow="geolocation"></iframe>
-    </div>
+    <div id="status-info">Inicjalizacja połączenia...</div>
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
+        const REFRESH_INTERVAL = 10000;
         const urlParams = new URLSearchParams(window.location.search);
         const TOKEN = urlParams.get('token');
-        const frame = document.getElementById('traccar-frame');
-        const errorMsg = document.getElementById('error-msg');
 
-        if (!TOKEN) {
-            errorMsg.style.display = 'block';
-            frame.style.display = 'none';
-        } else {
-            frame.src = `https://demo.traccar.org?token=${encodeURIComponent(TOKEN)}`;
+        const map = L.map('map', {
+            zoomControl: true,
+            attributionControl: false
+        }).setView([52.237049, 21.017532], 6);
 
-            // Automatyczne ukrywanie elementów interfejsu Traccara po wczytaniu
-            frame.addEventListener('load', () => {
-                try {
-                    const frameDoc = frame.contentDocument || frame.contentWindow.document;
-                    const style = frameDoc.createElement('style');
-                    style.innerHTML = `
-                        /* Ukrycie paska nawigacji, menu bocznego i nagłówków */
-                        .tbar, .v-toolbar, .v-navigation-drawer, .v-footer, 
-                        header, nav, .v-card, .v-btn--icon {
-                            display: none !important;
-                        }
-                        /* Rozciągnięcie samej mapy na cały ekran */
-                        .v-main, .ol-viewport, #map {
-                            padding: 0 !important;
-                            margin: 0 !important;
-                            width: 100% !important;
-                            height: 100% !important;
-                        }
-                    `;
-                    frameDoc.head.appendChild(style);
-                } catch (e) {
-                    // Ze względów bezpieczeństwa przeglądarki (Cross-Origin) ukrywanie interfejsu działa optymalnie gdy sesja jest natywna
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+        }).addTo(map);
+
+        let positionMarker = null;
+        let accuracyCircle = null;
+        let initialZoomDone = false;
+
+        async function updatePosition() {
+            const statusEl = document.getElementById('status-info');
+
+            if (!TOKEN) {
+                statusEl.classList.add('error');
+                statusEl.innerText = "Brak tokena w URL (?token=...)";
+                return;
+            }
+
+            try {
+                // Zapytanie z przekazaniem tokena w query i bez nagłówków wyzwalających preflight CORS
+                const targetUrl = `https://demo.traccar.org/api/positions?token=${encodeURIComponent(TOKEN)}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+                const response = await fetch(proxyUrl);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP_${response.status}`);
                 }
-            });
-        }
-    </script>
 
+                const positions = await response.json();
+
+                if (positions && positions.length > 0) {
+                    const latest = positions[positions.length - 1];
+                    const lat = latest.latitude;
+                    const lng = latest.longitude;
+                    const accuracy = latest.accuracy || 0;
+                    const latlng = [lat, lng];
+
+                    if (!positionMarker) {
+                        positionMarker = L.circleMarker(latlng, {
+                            color: '#ffffff',
+                            fillColor: '#0078ff',
+                            fillOpacity: 1,
+                            weight: 3,
+                            radius: 10
+                        }).addTo(map);
+
+                        if (accuracy > 0) {
+                            accuracyCircle = L.circle(latlng, {
+                                radius: accuracy,
+                                color: '#0078ff',
+                                fillColor: '#0078ff',
+                                fillOpacity: 0.15,
+                                weight: 1
+                            }).addTo(map);
+                        }
+                    } else {
+                        positionMarker.setLatLng(latlng);
+                        if (accuracyCircle) {
+                            accuracyCircle.setLatLng(latlng);
+                            if (accuracy > 0) accuracyCircle.setRadius(accuracy);
+                        }
+                    }
+
+                    if (!initialZoomDone) {
+                        map.setView(latlng, 15);
+                        initialZoomDone = true;
+                    }
+
+                    statusEl.classList.remove('error');
+                    const timeStr = new Date(latest.fixTime || latest.deviceTime).toLocaleTimeString('pl-PL');
+                    statusEl.innerText = `Ostatnia pozycja: ${timeStr}`;
+                } else {
+                    statusEl.innerText = "Brak dostępnych pozycji dla tego tokena";
+                }
+
+            } catch (error) {
+                console.error("Błąd:", error);
+                statusEl.classList.add('error');
+                statusEl.innerText = "Błąd pobierania danych z serwera";
+            }
+        }
+
+        updatePosition();
+        setInterval(updatePosition, REFRESH_INTERVAL);
+    </script>
 </body>
 </html>
