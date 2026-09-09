@@ -466,21 +466,21 @@
              * Pierwsze centrowanie
              */
 
-            if (firstPosition) {
+map.setView(
+    coordinates,
+    17,
+    {
+        animate: true,
+        duration: 1
+    }
+);
 
-                map.setView(
+firstPosition = false;
 
-                    coordinates,
 
-                    17
 
-                );
 
-                firstPosition =
-                    false;
-
-            }
-
+            
 
             hideError();
 
