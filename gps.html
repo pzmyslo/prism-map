@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Moja Pozycja GPS</title>
+<title>Traccar GPS Map</title>
 
 <!-- =====================================================
      LEAFLET
@@ -60,7 +60,6 @@ html, body, #map {
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Płynna animacja obrotu znacznika */
     transition: transform 0.3s ease-out;
 }
 
@@ -71,8 +70,8 @@ html, body, #map {
     box-sizing: border-box;
     border-radius: 50%;
     background: #ffffff;
-    border: 4px solid #ff0000; /* Czerwona ramka */
-    box-shadow: 0 2px 6px rgba(0,0,0,0.6); /* Cień pod kołem */
+    border: 4px solid #ff0000;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6);
     z-index: 1;
 }
 
@@ -89,18 +88,18 @@ html, body, #map {
 }
 
 /* =====================================================
-   STATUS (Pojawia się przy braku zgody/błędzie)
+   STATUS BŁĘDU / ŁADOWANIA
    ===================================================== */
 #status {
     position: absolute;
     left: 5px;
     top: 5px;
     z-index: 10000;
-    padding: 6px 10px;
+    padding: 4px 7px;
     border-radius: 5px;
-    background: rgba(0,0,0,0.85);
+    background: rgba(0,0,0,0.78);
     color: white;
-    font: 12px Arial, sans-serif;
+    font: 10px Arial, sans-serif;
     display: block;
 }
 </style>
@@ -109,9 +108,20 @@ html, body, #map {
 <body>
 
 <div id="map"></div>
-<div id="status">Oczekiwanie na uprawnienia GPS...</div>
+<div id="status">Inicjalizacja...</div>
 
 <script>
+/* =====================================================
+   POBIERANIE TOKENA Z ADRESU URL
+   ===================================================== */
+const params = new URLSearchParams(window.location.search);
+const TOKEN = params.get("token");
+
+/* Serwer Traccar */
+const SERVER = "https://demo.traccar.org";
+const REFRESH_TIME = 2000;
+const DEFAULT_ZOOM = 18;
+
 /* =====================================================
    MAPA LEAFLET
    ===================================================== */
@@ -124,11 +134,8 @@ const map = L.map("map", {
     touchZoom: false,
     boxZoom: false,
     keyboard: false
-}).setView([0, 0], 18); // Domyślny poziom powiększenia
+}).setView([0, 0], DEFAULT_ZOOM);
 
-/* =====================================================
-   WARSTWA MAPY OPENSTREETMAP
-   ===================================================== */
 L.tileLayer(
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
@@ -137,7 +144,7 @@ L.tileLayer(
 ).addTo(map);
 
 /* =====================================================
-   KOMPLETNA IKONA ZNACZNIKA
+   IKONA ZNACZNIKA
    ===================================================== */
 const gpsIcon = L.divIcon({
     className: "",
@@ -146,17 +153,12 @@ const gpsIcon = L.divIcon({
           '<div class="gps-arrow-shape"></div>' +
           '</div>',
     iconSize: [34, 34],
-    iconAnchor: [17, 17] /* Środek znacznika dokłanie w centrum mapy */
+    iconAnchor: [17, 17]
 });
 
-/* =====================================================
-   ZMIENNE
-   ===================================================== */
 let gpsMarker = null;
+let targetDeviceId = null;
 
-/* =====================================================
-   STATUS
-   ===================================================== */
 function showStatus(text) {
     const element = document.getElementById("status");
     element.textContent = text;
@@ -164,76 +166,131 @@ function showStatus(text) {
 }
 
 /* =====================================================
-   OBSŁUGA POBIERANIA POZYCJI GPS Z URZĄDZENIA
+   1. INICJALIZACJA SESJI W TRACCAR I POBRANIE ID URZĄDZENIA
    ===================================================== */
-function onPositionSuccess(position) {
-    const latitude = position.coords.latitude;
-    const longitude = position.coords.longitude;
-    const heading = position.coords.heading; // Kierunek w stopniach (o ile dostępny)
+async function initTraccarSession() {
+    try {
+        // Logowanie za pomocą tokena z adresu URL
+        const sessionResp = await fetch(`${SERVER}/api/session?token=${encodeURIComponent(TOKEN)}`, {
+            method: "GET",
+            headers: { "Accept": "application/json" }
+        });
 
-    const userLatLng = [latitude, longitude];
-
-    // 1. Zawsze ustawiaj środek mapy dokładnie na pobraną pozycję
-    map.setView(userLatLng, 18, { animate: false });
-
-    // 2. Dodaj lub przesuń znacznik (zawsze w centrum)
-    if (!gpsMarker) {
-        gpsMarker = L.marker(userLatLng, {
-            icon: gpsIcon,
-            interactive: false
-        }).addTo(map);
-    } else {
-        gpsMarker.setLatLng(userLatLng);
-    }
-
-    // 3. Obróć strzałkę, jeśli urządzenie udostępnia kierunek ruchu (heading)
-    if (heading !== null && !isNaN(heading)) {
-        const markerDiv = document.getElementById("directionMarker");
-        if (markerDiv) {
-            markerDiv.style.transform = "rotate(" + heading + "deg)";
+        if (!sessionResp.ok) {
+            showStatus("BŁĄD AUTORYZACJI (NIEPRAWIDŁOWY TOKEN)");
+            return false;
         }
-    }
 
-    // Ukryj status po pomyślnym pobraniu pozycji
-    showStatus("");
-}
+        // Pobranie listy urządzeń przypisanych do Twojego konta
+        const devicesResp = await fetch(`${SERVER}/api/devices`, {
+            method: "GET",
+            headers: { "Accept": "application/json" }
+        });
 
-function onPositionError(error) {
-    switch(error.code) {
-        case error.PERMISSION_DENIED:
-            showStatus("Brak zgody na dostęp do GPS.");
-            break;
-        case error.POSITION_UNAVAILABLE:
-            showStatus("Sygnał GPS jest niedostępny.");
-            break;
-        case error.TIMEOUT:
-            showStatus("Przekroczono czas oczekiwania na lokalizację.");
-            break;
-        default:
-            showStatus("Wystąpił nieznany błąd GPS.");
-            break;
+        if (!devicesResp.ok) {
+            showStatus("BŁĄD POBIERANIA URZĄDZEŃ");
+            return false;
+        }
+
+        const devices = await devicesResp.json();
+        if (!Array.isArray(devices) || devices.length === 0) {
+            showStatus("BRAK PRZYPISANYCH URZĄDZEŃ DO TOKENA");
+            return false;
+        }
+
+        // Bierzemy pierwsze urządzenie z konta
+        targetDeviceId = devices[0].id;
+        return true;
+
+    } catch (e) {
+        showStatus("BŁĄD POŁĄCZENIA Z SERWEREM TRACCAR");
+        return false;
     }
 }
 
 /* =====================================================
-   START ŚLEDZENIA
+   2. AKTUALIZACJA POZYCJI GPS
    ===================================================== */
-function startTracking() {
-    if ("geolocation" in navigator) {
-        // watchPosition automatycznie aktualizuje pozycję w czasie rzeczywistym
-        navigator.geolocation.watchPosition(onPositionSuccess, onPositionError, {
-            enableHighAccuracy: true, // Zapewnia najwyższą dokładność (GPS)
-            maximumAge: 0,            // Brak pamięci podręcznej (zawsze świeże dane)
-            timeout: 10000            // Czas oczekiwania na odpowiedź
+async function updateGPS() {
+    if (!targetDeviceId) return;
+
+    try {
+        const response = await fetch(`${SERVER}/api/positions?deviceId=${targetDeviceId}`, {
+            method: "GET",
+            cache: "no-store",
+            headers: { "Accept": "application/json" }
         });
-    } else {
-        showStatus("Twoja przeglądarka nie obsługuje geolokalizacji.");
+
+        if (!response.ok) {
+            showStatus("BŁĄD POBIERANIA POZYCJI HTTP " + response.status);
+            return;
+        }
+
+        const positions = await response.json();
+
+        if (!Array.isArray(positions) || positions.length === 0) {
+            showStatus("OCZEKIWANIE NA POZYCJĘ...");
+            return;
+        }
+
+        const data = positions[0];
+        const latitude = Number(data.latitude);
+        const longitude = Number(data.longitude);
+
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            showStatus("BŁĘDNE WSPÓŁRZĘDNE");
+            return;
+        }
+
+        const position = [latitude, longitude];
+
+        // Ścisłe scentralizowanie mapy na pozycji GPS
+        map.setView(position, DEFAULT_ZOOM, { animate: false });
+
+        // Dodanie lub aktualizacja znacznika na mapie
+        if (!gpsMarker) {
+            gpsMarker = L.marker(position, {
+                icon: gpsIcon,
+                interactive: false
+            }).addTo(map);
+        } else {
+            gpsMarker.setLatLng(position);
+        }
+
+        // Obrót strzałki na podstawie pola 'course'
+        const course = Number(data.course);
+        if (Number.isFinite(course)) {
+            const markerDiv = document.getElementById("directionMarker");
+            if (markerDiv) {
+                markerDiv.style.transform = "rotate(" + course + "deg)";
+            }
+        }
+
+        showStatus(""); // Ukryj status po poprawnym odczycie
+
+    } catch (error) {
+        showStatus("BŁĄD SIECIOWY");
     }
 }
 
-// Uruchomienie śledzenia
-startTracking();
+/* =====================================================
+   START
+   ===================================================== */
+async function start() {
+    if (!TOKEN) {
+        showStatus("BRAK TOKENU W ADRESIE URL");
+        return;
+    }
 
+    showStatus("Łączenie z Traccar...");
+    const initialized = await initTraccarSession();
+    if (initialized) {
+        await updateGPS();
+        setInterval(updateGPS, REFRESH_TIME);
+    }
+}
+
+start();
 </script>
 </body>
 </html>
