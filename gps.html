@@ -1,159 +1,26 @@
-<!DOCTYPE html>
-<html lang="pl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pozycja GPS</title>
-    
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+// Zamiast: const SERVER_URL = "https://demo.traccar.org";
+const SERVER_URL = "https://corsproxy.io/?" + encodeURIComponent("https://demo.traccar.org");
 
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        html, body, #map {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #f0f0f0;
-        }
-        /* Styl dla wskaźnika stanu/błędu */
-        #status-info {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 1000;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 8px 14px;
-            border-radius: 20px;
-            font-family: sans-serif;
-            font-size: 12px;
-            color: #333;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            pointer-events: none;
-        }
-        .error {
-            color: #d9534f !important;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
+async function updatePosition() {
+    const statusEl = document.getElementById('status-info');
 
-    <div id="status-info">Łączenie z serwerem...</div>
-    <div id="map"></div>
+    if (!TOKEN) {
+        statusEl.classList.add('error');
+        statusEl.innerText = "Brak tokena w adresie URL (?token=...)";
+        return;
+    }
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <script>
-        const SERVER_URL = "https://demo.traccar.org";
-        const REFRESH_INTERVAL = 10000; // Odświeżanie co 10 sekund
-
-        // Pobranie tokena z adresu URL (parametr ?token=...)
-        const urlParams = new URLSearchParams(window.location.search);
-        const TOKEN = urlParams.get('token');
-
-        // Inicjalizacja mapy Leaflet
-        const map = L.map('map', {
-            zoomControl: true,
-            attributionControl: false
-        }).setView([52.237049, 21.017532], 6);
-
-        // Kafle OpenStreetMap
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19
-        }).addTo(map);
-
-        let positionMarker = null;
-        let accuracyCircle = null;
-        let initialZoomDone = false;
-
-        async function updatePosition() {
-            const statusEl = document.getElementById('status-info');
-
-            // Walidacja czy token został przekazany w URL
-            if (!TOKEN) {
-                statusEl.classList.add('error');
-                statusEl.innerText = "Brak tokena w adresie URL (?token=...)";
-                return;
+    try {
+        // Wywołanie przez proxy
+        const response = await fetch(`${SERVER_URL}/api/positions?token=${encodeURIComponent(TOKEN)}`, {
+            headers: {
+                'Accept': 'application/json'
             }
+        });
 
-            try {
-                // Pobieranie pozycji z Traccar za pomocą przekazanego tokena
-                const response = await fetch(`${SERVER_URL}/api/positions?token=${encodeURIComponent(TOKEN)}`, {
-                    headers: {
-                        'Accept': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Błąd HTTP: ${response.status}`);
-                }
-
-                const positions = await response.json();
-
-                if (positions && positions.length > 0) {
-                    const latest = positions[positions.length - 1];
-                    const lat = latest.latitude;
-                    const lng = latest.longitude;
-                    const accuracy = latest.accuracy || 0;
-
-                    const latlng = [lat, lng];
-
-                    // Tworzenie lub aktualizacja markerów
-                    if (!positionMarker) {
-                        // Kółko pozycji
-                        positionMarker = L.circleMarker(latlng, {
-                            color: '#ffffff',
-                            fillColor: '#0078ff',
-                            fillOpacity: 0.9,
-                            weight: 2,
-                            radius: 9
-                        }).addTo(map);
-
-                        // Kółko niedokładności
-                        if (accuracy > 0) {
-                            accuracyCircle = L.circle(latlng, {
-                                radius: accuracy,
-                                color: '#0078ff',
-                                fillColor: '#0078ff',
-                                fillOpacity: 0.15,
-                                weight: 1
-                            }).addTo(map);
-                        }
-                    } else {
-                        positionMarker.setLatLng(latlng);
-                        if (accuracyCircle) {
-                            accuracyCircle.setLatLng(latlng);
-                            if (accuracy > 0) accuracyCircle.setRadius(accuracy);
-                        }
-                    }
-
-                    // Wyśrodkowanie mapy przy pierwszym załadowaniu
-                    if (!initialZoomDone) {
-                        map.setView(latlng, 15);
-                        initialZoomDone = true;
-                    }
-
-                    const timeStr = new Date(latest.fixTime || latest.deviceTime).toLocaleTimeString('pl-PL');
-                    statusEl.innerText = `Aktualizacja: ${timeStr}`;
-                } else {
-                    statusEl.innerText = "Brak dostępnych pozycji dla tego tokena";
-                }
-
-            } catch (error) {
-                console.error("Błąd podczas pobierania pozycji:", error);
-                statusEl.innerText = "Błąd pobierania danych z serwera";
-            }
+        if (!response.ok) {
+            throw new Error(`Błąd HTTP: ${response.status}`);
         }
 
-        // Pierwsze wywołanie i cykliczne odświeżanie
-        updatePosition();
-        setInterval(updatePosition, REFRESH_INTERVAL);
-    </script>
-</body>
-</html>
+        const positions = await response.json();
+        // ... DALSZA CZĘŚĆ KODU BEZ ZMIAN ...
