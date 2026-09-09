@@ -52,7 +52,8 @@
     <script>
         const REFRESH_INTERVAL = 10000; // Odświeżanie co 10 sekund
         const TRACCAR_BASE = "https://demo.traccar.org";
-        const PROXY_BASE = "https://corsproxy.io/?";
+        // Zmiana proxy na allorigins.win
+        const PROXY_BASE = "https://api.allorigins.win/raw?url=";
 
         // Odczyt tokena z adresu URL (?token=...)
         const urlParams = new URLSearchParams(window.location.search);
@@ -74,14 +75,14 @@
         let initialZoomDone = false;
 
         async function fetchTraccarData(endpoint) {
-            // Przekazanie tokena zarówno w query jak i w parametrze URL
-            const targetUrl = `${TRACCAR_BASE}${endpoint}${endpoint.includes('?') ? '&' : '?'}token=${encodeURIComponent(TOKEN)}`;
+            const targetUrl = `${TRACCAR_BASE}${endpoint}?token=${encodeURIComponent(TOKEN)}`;
             const url = `${PROXY_BASE}${encodeURIComponent(targetUrl)}`;
 
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
-                    'Accept': 'application/json'
+                    'Accept': 'application/json',
+                    'Authorization': `Bearer ${TOKEN}`
                 }
             });
 
@@ -102,7 +103,7 @@
             }
 
             try {
-                // Pobranie aktualnej pozycji powiązanej z tokenem
+                // Pobranie pozycji
                 const positions = await fetchTraccarData('/api/positions');
 
                 if (positions && positions.length > 0) {
