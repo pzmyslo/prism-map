@@ -2,138 +2,373 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
     <title>GPS</title>
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
 
+    <style>
         html,
-        body {
+        body,
+        #map {
+            width: 100%;
+            height: 100%;
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
+        }
+
+        body {
             overflow: hidden;
-            background: #111;
+            background: #eee;
         }
 
-        #traccar {
-            display: block;
-            width: 100%;
-            height: 100%;
-            border: 0;
+        #map {
+            position: fixed;
+            inset: 0;
         }
 
-        #error {
-            display: none;
+        .gps-marker {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: #1976d2;
+            border: 4px solid white;
+            box-shadow:
+                0 2px 8px rgba(0, 0, 0, 0.45);
+            position: relative;
+        }
+
+        .gps-marker::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 12px;
+            height: 12px;
+            margin-left: -6px;
+            margin-top: -6px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        .error {
             position: fixed;
             z-index: 9999;
-            inset: 0;
-            background: #111;
+            left: 50%;
+            top: 20px;
+            transform: translateX(-50%);
+            width: min(90%, 500px);
+            padding: 14px 18px;
+            background: rgba(180, 0, 0, 0.95);
             color: white;
+            border-radius: 8px;
             font-family: Arial, sans-serif;
+            font-size: 14px;
             text-align: center;
-            padding: 40px 20px;
-        }
-
-        #error h2 {
-            margin-top: 20px;
-        }
-
-        #error p {
-            color: #ccc;
-            line-height: 1.5;
+            box-shadow: 0 3px 15px rgba(0,0,0,.3);
+            display: none;
         }
     </style>
 </head>
 
 <body>
 
-    <iframe
-        id="traccar"
-        title="Lokalizacja GPS"
-        allow="geolocation"
-        referrerpolicy="no-referrer">
-    </iframe>
+<div id="map"></div>
 
-    <div id="error">
-        <h2>Nie można otworzyć lokalizacji GPS</h2>
-        <p id="errorText"></p>
-    </div>
+<div id="error" class="error"></div>
 
-    <script>
-        /*
-         * =====================================================
-         * GPS.HTML
-         *
-         * Adres:
-         *
-         * https://pzmyslo.github.io/prism-map/gps.html?token=TOKEN
-         *
-         * zostanie automatycznie zamieniony na:
-         *
-         * https://demo.traccar.org?token=TOKEN
-         * =====================================================
-         */
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-        const TRACCAR_URL = "https://demo.traccar.org/";
+<script>
 
-        const params = new URLSearchParams(
-            window.location.search
-        );
+    /*
+     * ============================================================
+     * KONFIGURACJA
+     * ============================================================
+     */
 
-        const token = params.get("token");
+    const TRACCAR_SERVER = "https://demo.traccar.org";
 
-        const iframe = document.getElementById("traccar");
-        const error = document.getElementById("error");
-        const errorText = document.getElementById("errorText");
+    // Odświeżanie pozycji co 10 sekund
+    const UPDATE_INTERVAL = 10000;
 
 
-        /*
-         * Brak tokena
-         */
-        if (!token) {
+    /*
+     * ============================================================
+     * TOKEN Z ADRESU
+     *
+     * gps.html?token=XXXXX
+     * ============================================================
+     */
 
-            iframe.style.display = "none";
-            error.style.display = "block";
+    const params =
+        new URLSearchParams(window.location.search);
 
-            errorText.textContent =
-                "Brak parametru token w adresie strony.";
-        }
-
-
-        /*
-         * Token istnieje
-         */
-        else {
-
-            const traccarUrl =
-                TRACCAR_URL +
-                "?token=" +
-                encodeURIComponent(token);
-
-            iframe.src = traccarUrl;
-        }
+    const token =
+        params.get("token");
 
 
-        /*
-         * Jeżeli Traccar zablokuje osadzanie w iframe,
-         * pokazujemy informację.
-         */
-        iframe.addEventListener("load", function () {
+    /*
+     * ============================================================
+     * MAPA
+     * ============================================================
+     */
 
-            console.log(
-                "Traccar załadowany:",
-                iframe.src
-            );
-
+    const map =
+        L.map("map", {
+            zoomControl: true
         });
 
-    </script>
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 19,
+
+            attribution:
+                '&copy; OpenStreetMap contributors'
+        }
+    ).addTo(map);
+
+
+    /*
+     * Domyślne położenie Polski
+     */
+
+    map.setView(
+        [52.069, 19.480],
+        6
+    );
+
+
+    /*
+     * ============================================================
+     * MARKER
+     * ============================================================
+     */
+
+    const vehicleIcon =
+        L.divIcon({
+            className: "",
+            html: '<div class="gps-marker"></div>',
+            iconSize: [42, 42],
+            iconAnchor: [21, 21]
+        });
+
+
+    let marker = null;
+
+
+    /*
+     * ============================================================
+     * BŁĘDY
+     * ============================================================
+     */
+
+    function showError(message) {
+
+        const element =
+            document.getElementById("error");
+
+        element.textContent = message;
+        element.style.display = "block";
+    }
+
+
+    function hideError() {
+
+        document.getElementById("error")
+            .style.display = "none";
+    }
+
+
+    /*
+     * ============================================================
+     * SPRAWDZENIE TOKENA
+     * ============================================================
+     */
+
+    if (!token) {
+
+        showError(
+            "Brak tokenu GPS w adresie strony."
+        );
+
+    } else {
+
+        /*
+         * ========================================================
+         * POBIERANIE POZYCJI
+         * ========================================================
+         */
+
+        async function updateLocation() {
+
+            try {
+
+                /*
+                 * Token przekazujemy jako Bearer.
+                 *
+                 * Nie używamy credentials: include.
+                 */
+
+                const response =
+                    await fetch(
+                        TRACCAR_SERVER +
+                        "/api/positions",
+                        {
+                            method: "GET",
+
+                            headers: {
+                                "Authorization":
+                                    "Bearer " + token,
+
+                                "Accept":
+                                    "application/json"
+                            },
+
+                            cache: "no-store"
+                        }
+                    );
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        "Traccar HTTP " +
+                        response.status
+                    );
+                }
+
+
+                const positions =
+                    await response.json();
+
+
+                if (
+                    !Array.isArray(positions) ||
+                    positions.length === 0
+                ) {
+
+                    throw new Error(
+                        "Brak dostępnej lokalizacji."
+                    );
+                }
+
+
+                /*
+                 * Pierwsze urządzenie.
+                 */
+
+                const position =
+                    positions[0];
+
+
+                const latitude =
+                    Number(position.latitude);
+
+                const longitude =
+                    Number(position.longitude);
+
+
+                if (
+                    !Number.isFinite(latitude) ||
+                    !Number.isFinite(longitude)
+                ) {
+
+                    throw new Error(
+                        "Traccar zwrócił nieprawidłowe współrzędne."
+                    );
+                }
+
+
+                const coordinates =
+                    [
+                        latitude,
+                        longitude
+                    ];
+
+
+                /*
+                 * =================================================
+                 * MARKER
+                 * =================================================
+                 */
+
+                if (!marker) {
+
+                    marker =
+                        L.marker(
+                            coordinates,
+                            {
+                                icon: vehicleIcon
+                            }
+                        ).addTo(map);
+
+
+                    /*
+                     * Pierwsze ustawienie mapy.
+                     */
+
+                    map.setView(
+                        coordinates,
+                        17
+                    );
+
+                } else {
+
+                    /*
+                     * Kolejne aktualizacje.
+                     */
+
+                    marker.setLatLng(
+                        coordinates
+                    );
+                }
+
+
+                hideError();
+
+            } catch (error) {
+
+                console.error(
+                    "GPS:",
+                    error
+                );
+
+                showError(
+                    "Nie można pobrać lokalizacji: " +
+                    error.message
+                );
+            }
+        }
+
+
+        /*
+         * Pierwsze pobranie
+         */
+
+        updateLocation();
+
+
+        /*
+         * Aktualizacja co 10 sekund
+         */
+
+        setInterval(
+            updateLocation,
+            UPDATE_INTERVAL
+        );
+    }
+
+</script>
 
 </body>
 </html>
