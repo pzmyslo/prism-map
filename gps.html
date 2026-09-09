@@ -3,110 +3,666 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pozycja GPS</title>
-    
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <title>Lokalizacja GPS</title>
+
+    <!-- Leaflet -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIINfQ3X3E6m9eG2sQ3Qv6mR6Y5R7V7m4w4="
+        crossorigin=""
+    />
 
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body, #map { width: 100%; height: 100%; overflow: hidden; background: #e5e5e5; }
-        #status-info {
-            position: absolute; top: 12px; right: 12px; z-index: 1000;
-            background: rgba(255, 255, 255, 0.95); padding: 8px 14px; border-radius: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 13px; color: #333; box-shadow: 0 2px 8px rgba(0,0,0,0.15); pointer-events: none;
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f2f2f2;
         }
-        .error { color: #d9534f !important; font-weight: bold; }
+
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        .panel {
+            position: absolute;
+            z-index: 1000;
+            top: 15px;
+            left: 15px;
+            max-width: 340px;
+            background: rgba(255, 255, 255, 0.96);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.25);
+        }
+
+        .panel h2 {
+            margin: 0 0 12px 0;
+            font-size: 20px;
+        }
+
+        .row {
+            margin: 6px 0;
+            font-size: 14px;
+        }
+
+        .label {
+            color: #666;
+        }
+
+        .value {
+            font-weight: bold;
+        }
+
+        .status {
+            margin-top: 12px;
+            padding: 8px 10px;
+            border-radius: 7px;
+            background: #eee;
+            font-size: 13px;
+        }
+
+        .status.ok {
+            background: #dff5e3;
+            color: #176b2c;
+        }
+
+        .status.error {
+            background: #ffe1e1;
+            color: #9c1c1c;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            color: #765900;
+        }
+
+        .refresh {
+            margin-top: 12px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .leaflet-popup-content {
+            font-size: 14px;
+        }
+
+        @media (max-width: 600px) {
+            .panel {
+                top: 10px;
+                left: 10px;
+                right: 10px;
+                max-width: none;
+            }
+        }
     </style>
 </head>
+
 <body>
 
-    <div id="status-info">Łączenie...</div>
-    <div id="map"></div>
+<div id="map"></div>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div class="panel">
+    <h2>📍 Lokalizacja GPS</h2>
 
-    <script>
-        const REFRESH_INTERVAL = 10000;
-        const urlParams = new URLSearchParams(window.location.search);
-        const TOKEN = urlParams.get('token');
+    <div class="row">
+        <span class="label">Urządzenie:</span>
+        <span id="deviceName" class="value">—</span>
+    </div>
 
-        const map = L.map('map', { zoomControl: true, attributionControl: false }).setView([52.237, 21.017], 6);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    <div class="row">
+        <span class="label">Szerokość:</span>
+        <span id="latitude" class="value">—</span>
+    </div>
 
-        let positionMarker = null;
-        let accuracyCircle = null;
-        let initialZoomDone = false;
+    <div class="row">
+        <span class="label">Długość:</span>
+        <span id="longitude" class="value">—</span>
+    </div>
 
-        async function updatePosition() {
-            const statusEl = document.getElementById('status-info');
+    <div class="row">
+        <span class="label">Prędkość:</span>
+        <span id="speed" class="value">—</span>
+    </div>
 
-            if (!TOKEN) {
-                statusEl.classList.add('error');
-                statusEl.innerText = "Brak tokena w URL (?token=...)";
+    <div class="row">
+        <span class="label">Ostatnia pozycja:</span>
+        <span id="positionTime" class="value">—</span>
+    </div>
+
+    <div id="status" class="status loading">
+        Łączenie z Traccar...
+    </div>
+
+    <div class="refresh">
+        Automatyczne odświeżanie: co 10 sekund
+    </div>
+</div>
+
+<!-- Leaflet -->
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin="">
+</script>
+
+<script>
+    /*
+     * ============================================================
+     * KONFIGURACJA
+     * ============================================================
+     */
+
+    const TRACCAR_SERVER = "https://demo.traccar.org";
+
+    // Odświeżanie pozycji w milisekundach
+    const REFRESH_INTERVAL = 10000;
+
+
+    /*
+     * ============================================================
+     * ODCZYT TOKENA Z URL
+     *
+     * Przykład:
+     *
+     * gps.html?token=ABC123
+     * ============================================================
+     */
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get("token");
+
+
+    /*
+     * ============================================================
+     * ELEMENTY INTERFEJSU
+     * ============================================================
+     */
+
+    const deviceNameElement =
+        document.getElementById("deviceName");
+
+    const latitudeElement =
+        document.getElementById("latitude");
+
+    const longitudeElement =
+        document.getElementById("longitude");
+
+    const speedElement =
+        document.getElementById("speed");
+
+    const positionTimeElement =
+        document.getElementById("positionTime");
+
+    const statusElement =
+        document.getElementById("status");
+
+
+    /*
+     * ============================================================
+     * MAPA
+     * ============================================================
+     */
+
+    const map = L.map("map", {
+        zoomControl: true
+    }).setView([52.2297, 21.0122], 6);
+
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 19,
+            attribution:
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }
+    ).addTo(map);
+
+
+    /*
+     * ============================================================
+     * MARKER
+     * ============================================================
+     */
+
+    let marker = null;
+
+
+    /*
+     * ============================================================
+     * FUNKCJE POMOCNICZE
+     * ============================================================
+     */
+
+    function setStatus(message, type = "loading") {
+
+        statusElement.textContent = message;
+
+        statusElement.className =
+            "status " + type;
+    }
+
+
+    function formatDate(dateString) {
+
+        if (!dateString) {
+            return "—";
+        }
+
+        const date = new Date(dateString);
+
+        if (isNaN(date.getTime())) {
+            return dateString;
+        }
+
+        return date.toLocaleString(
+            "pl-PL",
+            {
+                dateStyle: "medium",
+                timeStyle: "medium"
+            }
+        );
+    }
+
+
+    function knotsToKmh(knots) {
+
+        if (
+            knots === null ||
+            knots === undefined ||
+            isNaN(knots)
+        ) {
+            return 0;
+        }
+
+        return knots * 1.852;
+    }
+
+
+    /*
+     * ============================================================
+     * SPRAWDZENIE TOKENA
+     * ============================================================
+     */
+
+    if (!token) {
+
+        setStatus(
+            "Brak tokenu w adresie URL.",
+            "error"
+        );
+
+        throw new Error(
+            "Brak parametru token."
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * SESJA TRACCAR
+     *
+     * Traccar obsługuje:
+     *
+     * /api/session?token=USER_TOKEN
+     *
+     * Następnie możemy pobierać dane użytkownika.
+     * ============================================================
+     */
+
+    async function loginToTraccar() {
+
+        const url =
+            TRACCAR_SERVER +
+            "/api/session?token=" +
+            encodeURIComponent(token);
+
+        const response =
+            await fetch(
+                url,
+                {
+                    method: "GET",
+                    credentials: "include"
+                }
+            );
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Nie udało się uwierzytelnić. HTTP " +
+                response.status
+            );
+        }
+
+        return await response.json();
+    }
+
+
+    /*
+     * ============================================================
+     * POBRANIE URZĄDZEŃ
+     * ============================================================
+     */
+
+    async function getDevices() {
+
+        const response =
+            await fetch(
+                TRACCAR_SERVER +
+                "/api/devices",
+                {
+                    method: "GET",
+                    credentials: "include"
+                }
+            );
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Nie udało się pobrać urządzeń. HTTP " +
+                response.status
+            );
+        }
+
+        return await response.json();
+    }
+
+
+    /*
+     * ============================================================
+     * POBRANIE OSTATNICH POZYCJI
+     * ============================================================
+     */
+
+    async function getPositions() {
+
+        const response =
+            await fetch(
+                TRACCAR_SERVER +
+                "/api/positions",
+                {
+                    method: "GET",
+                    credentials: "include"
+                }
+            );
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Nie udało się pobrać pozycji. HTTP " +
+                response.status
+            );
+        }
+
+        return await response.json();
+    }
+
+
+    /*
+     * ============================================================
+     * AKTUALIZACJA MAPY
+     * ============================================================
+     */
+
+    async function updatePosition() {
+
+        try {
+
+            const positions =
+                await getPositions();
+
+            if (
+                !positions ||
+                positions.length === 0
+            ) {
+
+                setStatus(
+                    "Brak dostępnej pozycji urządzenia.",
+                    "error"
+                );
+
                 return;
             }
 
+
+            /*
+             * Jeżeli użytkownik ma tylko jedno
+             * urządzenie, używamy pierwszej pozycji.
+             *
+             * W przypadku wielu urządzeń można później
+             * rozbudować kod o wybór urządzenia.
+             */
+
+            const position =
+                positions[0];
+
+
+            const latitude =
+                Number(position.latitude);
+
+            const longitude =
+                Number(position.longitude);
+
+
+            if (
+                !isFinite(latitude) ||
+                !isFinite(longitude)
+            ) {
+
+                throw new Error(
+                    "Nieprawidłowe współrzędne."
+                );
+            }
+
+
+            /*
+             * Nazwa urządzenia
+             */
+
+            let deviceName =
+                "Urządzenie GPS";
+
             try {
-                // Zapytanie JSONP omalujace ograniczenia CORS
-                const targetUrl = `https://demo.traccar.org/api/positions?token=${encodeURIComponent(TOKEN)}`;
-                const jsonpUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
 
-                const response = await fetch(jsonpUrl);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const devices =
+                    await getDevices();
 
-                const data = await response.json();
-                
-                // Odczyt zawartości zwróconej przez API Traccar
-                if (!data.contents) throw new Error("EMPTY_RESPONSE");
-                const positions = JSON.parse(data.contents);
+                const device =
+                    devices.find(
+                        d =>
+                            Number(d.id) ===
+                            Number(position.deviceId)
+                    );
 
-                if (Array.isArray(positions) && positions.length > 0) {
-                    const latest = positions[positions.length - 1];
-                    const latlng = [latest.latitude, latest.longitude];
-                    const accuracy = latest.accuracy || 0;
-
-                    if (!positionMarker) {
-                        positionMarker = L.circleMarker(latlng, {
-                            color: '#ffffff', fillColor: '#0078ff', fillOpacity: 1, weight: 3, radius: 10
-                        }).addTo(map);
-
-                        if (accuracy > 0) {
-                            accuracyCircle = L.circle(latlng, {
-                                radius: accuracy, color: '#0078ff', fillColor: '#0078ff', fillOpacity: 0.15, weight: 1
-                            }).addTo(map);
-                        }
-                    } else {
-                        positionMarker.setLatLng(latlng);
-                        if (accuracyCircle) {
-                            accuracyCircle.setLatLng(latlng);
-                            if (accuracy > 0) accuracyCircle.setRadius(accuracy);
-                        }
-                    }
-
-                    if (!initialZoomDone) {
-                        map.setView(latlng, 15);
-                        initialZoomDone = true;
-                    }
-
-                    statusEl.classList.remove('error');
-                    const timeStr = new Date(latest.fixTime || latest.deviceTime).toLocaleTimeString('pl-PL');
-                    statusEl.innerText = `Ostatnia pozycja: ${timeStr}`;
-                } else {
-                    statusEl.innerText = "Brak danych pozycji dla tego tokena";
+                if (device && device.name) {
+                    deviceName = device.name;
                 }
 
             } catch (error) {
-                console.error("Błąd pobierania:", error);
-                statusEl.classList.add('error');
-                statusEl.innerText = "Błąd pobierania danych z serwera";
-            }
-        }
 
-        updatePosition();
-        setInterval(updatePosition, REFRESH_INTERVAL);
-    </script>
+                console.warn(
+                    "Nie udało się pobrać nazwy urządzenia:",
+                    error
+                );
+            }
+
+
+            /*
+             * Prędkość
+             *
+             * Traccar przechowuje speed
+             * standardowo w węzłach.
+             */
+
+            const speedKmh =
+                knotsToKmh(position.speed);
+
+
+            /*
+             * Aktualizacja informacji
+             */
+
+            deviceNameElement.textContent =
+                deviceName;
+
+            latitudeElement.textContent =
+                latitude.toFixed(6);
+
+            longitudeElement.textContent =
+                longitude.toFixed(6);
+
+            speedElement.textContent =
+                speedKmh.toFixed(1) +
+                " km/h";
+
+            positionTimeElement.textContent =
+                formatDate(position.fixTime);
+
+
+            /*
+             * Popup
+             */
+
+            const popupHtml = `
+                <strong>${escapeHtml(deviceName)}</strong><br>
+                📍 ${latitude.toFixed(6)},
+                ${longitude.toFixed(6)}<br>
+                🚗 ${speedKmh.toFixed(1)} km/h<br>
+                🕐 ${escapeHtml(formatDate(position.fixTime))}
+            `;
+
+
+            /*
+             * Utworzenie / przesunięcie markera
+             */
+
+            if (!marker) {
+
+                marker =
+                    L.marker(
+                        [latitude, longitude]
+                    )
+                    .addTo(map);
+
+                marker.bindPopup(
+                    popupHtml
+                );
+
+                map.setView(
+                    [latitude, longitude],
+                    16
+                );
+
+            } else {
+
+                marker.setLatLng(
+                    [latitude, longitude]
+                );
+
+                marker.setPopupContent(
+                    popupHtml
+                );
+            }
+
+
+            /*
+             * Status
+             */
+
+            setStatus(
+                "Pozycja została zaktualizowana.",
+                "ok"
+            );
+
+        } catch (error) {
+
+            console.error(error);
+
+            setStatus(
+                error.message ||
+                "Błąd pobierania lokalizacji.",
+                "error"
+            );
+        }
+    }
+
+
+    /*
+     * ============================================================
+     * ZABEZPIECZENIE TEKSTU HTML
+     * ============================================================
+     */
+
+    function escapeHtml(value) {
+
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+
+    /*
+     * ============================================================
+     * START
+     * ============================================================
+     */
+
+    async function start() {
+
+        try {
+
+            setStatus(
+                "Logowanie do Traccar...",
+                "loading"
+            );
+
+            await loginToTraccar();
+
+            setStatus(
+                "Pobieranie lokalizacji...",
+                "loading"
+            );
+
+            await updatePosition();
+
+
+            /*
+             * Automatyczne odświeżanie
+             */
+
+            setInterval(
+                updatePosition,
+                REFRESH_INTERVAL
+            );
+
+        } catch (error) {
+
+            console.error(error);
+
+            setStatus(
+                error.message ||
+                "Nie udało się połączyć z Traccar.",
+                "error"
+            );
+        }
+    }
+
+
+    start();
+
+</script>
+
 </body>
 </html>
