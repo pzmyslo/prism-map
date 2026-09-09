@@ -225,7 +225,7 @@
 
 
     <!-- =========================================
-         LEAFLET JS
+         LEAFLET
          ========================================= -->
 
     <script
@@ -245,7 +245,9 @@
 
 
         /* =====================================================
-           CZĘSTOTLIWOŚĆ POBIERANIA GPS
+           ODŚWIEŻANIE GPS
+           
+           10 sekund
            ===================================================== */
 
         const UPDATE_INTERVAL =
@@ -255,7 +257,7 @@
         /* =====================================================
            CZAS BEZ ZMIANY POZYCJI
            
-           10 minut = 600 000 ms
+           10 minut
            ===================================================== */
 
         const NO_MOVEMENT_TIME =
@@ -263,11 +265,7 @@
 
 
         /* =====================================================
-           POBRANIE TOKENU Z ADRESU
-
-           Przykład:
-
-           gps.html?token=ABC123
+           TOKEN Z ADRESU
            ===================================================== */
 
         const params =
@@ -281,10 +279,11 @@
 
 
         /* =====================================================
-           UTWORZENIE MAPY
-
+           MAPA
+           
            zoomControl: false
-           usuwa przyciski + i -
+           
+           Usuwa przyciski + i -
            ===================================================== */
 
         const map =
@@ -323,9 +322,6 @@
 
         /* =====================================================
            WIDOK POCZĄTKOWY
-
-           Po otrzymaniu GPS zostanie automatycznie
-           ustawiony na aktualnej pozycji.
            ===================================================== */
 
         map.setView(
@@ -365,33 +361,29 @@
         let marker = null;
 
 
-        let firstPosition = true;
-
-
         /*
-         * Ostatnia znana szerokość geograficzna
+         * Ostatnia znana szerokość
          */
 
         let lastLatitude = null;
 
 
         /*
-         * Ostatnia znana długość geograficzna
+         * Ostatnia znana długość
          */
 
         let lastLongitude = null;
 
 
         /*
-         * Moment ostatniej rzeczywistej zmiany pozycji
+         * Czas ostatniej zmiany pozycji
          */
 
         let lastPositionChangeTime = null;
 
 
         /*
-         * Czy aktualnie wyświetlamy
-         * czarną planszę?
+         * Czy pokazujemy czarną planszę
          */
 
         let awayMode = false;
@@ -414,7 +406,7 @@
 
 
         /* =====================================================
-           POKAŻ "ZARAZ WRACAM"
+           CZARNA PLANSZA
            ===================================================== */
 
         function showAwayScreen() {
@@ -436,10 +428,6 @@
         }
 
 
-        /* =====================================================
-           UKRYJ "ZARAZ WRACAM"
-           ===================================================== */
-
         function hideAwayScreen() {
 
             if (!awayMode) {
@@ -460,7 +448,7 @@
 
 
         /* =====================================================
-           POKAŻ BŁĄD
+           BŁĄD
            ===================================================== */
 
         function showError(message) {
@@ -473,10 +461,6 @@
 
         }
 
-
-        /* =====================================================
-           UKRYJ BŁĄD
-           ===================================================== */
 
         function hideError() {
 
@@ -492,12 +476,6 @@
 
         function checkPositionTimeout() {
 
-
-            /*
-             * Jeżeli nie mamy jeszcze
-             * żadnej pozycji, nic nie robimy.
-             */
-
             if (
                 lastPositionChangeTime === null
             ) {
@@ -507,19 +485,10 @@
             }
 
 
-            /*
-             * Ile czasu minęło
-             * od ostatniej zmiany pozycji?
-             */
-
             const elapsed =
                 Date.now() -
                 lastPositionChangeTime;
 
-
-            /*
-             * 10 minut bez zmiany
-             */
 
             if (
                 elapsed >=
@@ -534,7 +503,7 @@
 
 
         /* =====================================================
-           POBIERANIE POZYCJI GPS
+           POBIERANIE GPS
            ===================================================== */
 
         async function updateGPS() {
@@ -543,7 +512,7 @@
 
 
                 /* ---------------------------------------------
-                   SPRAWDZENIE TOKENU
+                   TOKEN
                    --------------------------------------------- */
 
                 if (!token) {
@@ -556,7 +525,7 @@
 
 
                 /* ---------------------------------------------
-                   POBRANIE DANYCH Z WORKERA
+                   WORKER
                    --------------------------------------------- */
 
                 const response =
@@ -580,7 +549,7 @@
 
 
                 /* ---------------------------------------------
-                   SPRAWDZENIE ODPOWIEDZI
+                   ODPOWIEDŹ HTTP
                    --------------------------------------------- */
 
                 if (!response.ok) {
@@ -596,7 +565,7 @@
 
 
                 /* ---------------------------------------------
-                   ODCZYT JSON
+                   JSON
                    --------------------------------------------- */
 
                 const positions =
@@ -651,7 +620,7 @@
 
 
                 /* ---------------------------------------------
-                   SPRAWDZENIE WSPÓŁRZĘDNYCH
+                   SPRAWDZENIE
                    --------------------------------------------- */
 
                 if (
@@ -699,35 +668,24 @@
 
 
                 /* ---------------------------------------------
-                   POZYCJA SIĘ ZMIENIŁA
+                   POZYCJA ZMIENIONA
                    --------------------------------------------- */
 
                 if (positionChanged) {
 
-
-                    /*
-                     * Zapamiętujemy nową pozycję.
-                     */
-
                     lastLatitude =
                         latitude;
 
-
                     lastLongitude =
                         longitude;
-
-
-                    /*
-                     * Zerujemy licznik 10 minut.
-                     */
 
                     lastPositionChangeTime =
                         Date.now();
 
 
                     /*
-                     * Jeżeli wcześniej była czarna
-                     * plansza, pokazujemy mapę.
+                     * Jeżeli była czarna plansza,
+                     * wracamy do mapy.
                      */
 
                     hideAwayScreen();
@@ -736,7 +694,7 @@
 
 
                 /* ---------------------------------------------
-                   WSPÓŁRZĘDNE DLA LEAFLET
+                   WSPÓŁRZĘDNE
                    --------------------------------------------- */
 
                 const coordinates = [
@@ -748,15 +706,10 @@
 
 
                 /* =================================================
-                   MARKER GPS
+                   MARKER
                    ================================================= */
 
                 if (!marker) {
-
-
-                    /*
-                     * Pierwsze utworzenie punktu.
-                     */
 
                     marker =
                         L.marker(
@@ -776,11 +729,6 @@
 
                 else {
 
-
-                    /*
-                     * Aktualizacja pozycji punktu.
-                     */
-
                     marker.setLatLng(
                         coordinates
                     );
@@ -789,19 +737,27 @@
 
 
                 /* =================================================
-                   PIERWSZE CENTROWANIE MAPY
+                   CENTROWANIE MAPY NA GPS
+                   
+                   Przy każdym odświeżeniu!
                    ================================================= */
 
                 map.setView(
-    coordinates,
-    17,
-    {
-        animate: true,
-        duration: 1
-    }
-);
 
-firstPosition = false;
+                    coordinates,
+
+                    17,
+
+                    {
+
+                        animate: true,
+
+                        duration: 1
+
+                    }
+
+                );
+
 
                 /* ---------------------------------------------
                    USUNIĘCIE BŁĘDU
@@ -811,7 +767,7 @@ firstPosition = false;
 
 
                 /* ---------------------------------------------
-                   LOG W KONSOLI
+                   LOG
                    --------------------------------------------- */
 
                 console.log(
@@ -830,7 +786,6 @@ firstPosition = false;
 
 
             catch (error) {
-
 
                 console.error(
 
@@ -854,16 +809,14 @@ firstPosition = false;
 
 
         /* =====================================================
-           PIERWSZE POBRANIE GPS
+           PIERWSZE POBRANIE
            ===================================================== */
 
         updateGPS();
 
 
         /* =====================================================
-           AUTOMATYCZNE ODŚWIEŻANIE GPS
-
-           Co 10 sekund.
+           GPS CO 10 SEKUND
            ===================================================== */
 
         setInterval(
@@ -876,9 +829,9 @@ firstPosition = false;
 
 
         /* =====================================================
-           SPRAWDZANIE 10-MINUTOWEGO BRAKU RUCHU
-
-           Sprawdzamy co sekundę.
+           SPRAWDZANIE BRAKU RUCHU
+           
+           Co sekundę.
            ===================================================== */
 
         setInterval(
