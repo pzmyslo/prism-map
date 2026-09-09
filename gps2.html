@@ -792,23 +792,16 @@
                    PIERWSZE CENTROWANIE MAPY
                    ================================================= */
 
-                if (firstPosition) {
+                map.setView(
+    coordinates,
+    17,
+    {
+        animate: true,
+        duration: 1
+    }
+);
 
-
-                    map.setView(
-
-                        coordinates,
-
-                        17
-
-                    );
-
-
-                    firstPosition =
-                        false;
-
-                }
-
+firstPosition = false;
 
                 /* ---------------------------------------------
                    USUNIĘCIE BŁĘDU
